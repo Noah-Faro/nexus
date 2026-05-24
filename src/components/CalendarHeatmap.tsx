@@ -215,12 +215,6 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
             <Text style={styles.cardHeader}>## 7-day-hydration-progress</Text>
             
             <View style={styles.chartArea}>
-              {/* Dashed Target Goal Line (Absolute Position at 100% height) */}
-              <View style={styles.goalLine} />
-              <View style={styles.goalLabelContainer}>
-                <Text style={styles.goalLabelText}>[GOAL TARGET]</Text>
-              </View>
-              
               {/* Row of 7 Bars */}
               <View style={styles.barsContainer}>
                 {last7Days.map((day, idx) => {
@@ -253,6 +247,12 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
                     </View>
                   );
                 })}
+              </View>
+
+              {/* Dashed Target Goal Line (Absolute Position at 100% height, overlaying bars) */}
+              <View style={styles.goalLine} />
+              <View style={styles.goalLabelContainer}>
+                <Text style={styles.goalLabelText}>[GOAL TARGET]</Text>
               </View>
             </View>
           </View>
@@ -453,7 +453,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.accentAmber,
     borderStyle: 'dashed',
-    opacity: 0.6,
+    opacity: 0.85,
+    zIndex: 5,
   },
   goalLabelContainer: {
     position: 'absolute',
@@ -462,6 +463,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#121212',
     paddingHorizontal: 4,
     borderRadius: 2,
+    zIndex: 6,
   },
   goalLabelText: {
     fontFamily: theme.typography.mono,
