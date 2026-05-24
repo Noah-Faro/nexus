@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, Dimensions, TouchableOpacity, PanResponder } from 'react-native';
+import { StyleSheet, Text, View, Dimensions, TouchableOpacity, PanResponder, Animated, Easing } from 'react-native';
 import Svg, { Line, Circle, Text as SvgText, G } from 'react-native-svg';
+
+const AnimatedG = Animated.createAnimatedComponent(G);
+const AnimatedText = Animated.createAnimatedComponent(SvgText);
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { DrinkLog, DayProgress, LiquidType, LIQUID_CONFIGS } from '../types';
@@ -23,87 +26,102 @@ interface NodeItem {
 }
 
 const { width } = Dimensions.get('window');
-const CANVAS_HEIGHT = 320;
+const CANVAS_HEIGHT = 260;
 const CX = width / 2;
 const CY = CANVAS_HEIGHT / 2;
 
 export default function GraphView({ progress }: GraphViewProps) {
   const [selectedNode, setSelectedNode] = useState<NodeItem | null>(null);
-  const [time, setTime] = useState(0);
-  const [zoom, setZoom] = useState(1.0); // Dynamic zoom scaling: ranges 0.4x to 2.5x
-  const [offsetX, setOffsetX] = useState(0); // Viewport pan offset X (panning)
-  const [offsetY, setOffsetY] = useState(0); // Viewport pan offset Y (panning)
+  
+  const zoom = useRef(new Animated.Value(1.0)).current;
+  const offsetX = useRef(new Animated.Value(0)).current;
+  const offsetY = useRef(new Animated.Value(0)).current;
+  const orbitAngle = useRef(new Animated.Value(0)).current;
 
-  // Use refs to avoid stale closures in PanResponder
-  const zoomRef = useRef(zoom);
-  const offsetXRef = useRef(offsetX);
-  const offsetYRef = useRef(offsetY);
+  const currentZoom = useRef(1.0);
+  const currentOffsetX = useRef(0);
+  const currentOffsetY = useRef(0);
+
+  // Measure exact canvas size dynamically
+  const [dimensions, setDimensions] = useState({ w: width - 32, h: CANVAS_HEIGHT });
+  const CX = dimensions.w / 2;
+  const CY = dimensions.h / 2;
+
+  const onLayout = (event: any) => {
+    const { width: layoutWidth, height: layoutHeight } = event.nativeEvent.layout;
+    setDimensions({ w: layoutWidth, h: layoutHeight });
+  };
 
   useEffect(() => {
-    zoomRef.current = zoom;
-    offsetXRef.current = offsetX;
-    offsetYRef.current = offsetY;
-  }, [zoom, offsetX, offsetY]);
-  
-  const animationFrameId = useRef<number | null>(null);
+    // Premium 60fps Native Loop
+    Animated.loop(
+      Animated.timing(orbitAngle, {
+        toValue: 1,
+        duration: 35000,
+        easing: Easing.linear,
+        useNativeDriver: true, // Use native driver for 60fps
+      })
+    ).start();
+
+    zoom.addListener(({ value }) => { currentZoom.current = value; });
+    offsetX.addListener(({ value }) => { currentOffsetX.current = value; });
+    offsetY.addListener(({ value }) => { currentOffsetY.current = value; });
+    return () => {
+      zoom.removeAllListeners();
+      offsetX.removeAllListeners();
+      offsetY.removeAllListeners();
+    };
+  }, []);
 
   const initialDist = useRef<number | null>(null);
   const baseZoom = useRef(1.0);
   const panStart = useRef({ x: 0, y: 0 });
 
-  // Gesture responder for 2-finger pinch-to-zoom AND single-finger panning
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
         const touches = evt.nativeEvent.touches;
-        // Only take over the gesture if moving, allowing node taps to work
         return (touches && touches.length === 2) || Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
       },
       onPanResponderGrant: (evt, gestureState) => {
-        // Record initial offsets before starting drag-pan
-        // We subtract gestureState.dx/dy because the gesture might have already started moving
         panStart.current = { 
-          x: offsetXRef.current - gestureState.dx, 
-          y: offsetYRef.current - gestureState.dy 
+          x: currentOffsetX.current - gestureState.dx, 
+          y: currentOffsetY.current - gestureState.dy 
         };
         initialDist.current = null;
       },
       onPanResponderMove: (evt, gestureState) => {
         const touches = evt.nativeEvent.touches;
         if (touches && touches.length === 2) {
-          // Two-finger pinch to zoom
-          const dx = touches[0].locationX - touches[1].locationX;
-          const dy = touches[0].locationY - touches[1].locationY;
+          const dx = touches[0].pageX - touches[1].pageX;
+          const dy = touches[0].pageY - touches[1].pageY;
           const dist = Math.sqrt(dx * dx + dy * dy);
           
           if (!initialDist.current) {
-            // First time seeing 2 fingers during this gesture
             initialDist.current = dist;
-            baseZoom.current = zoomRef.current;
+            baseZoom.current = currentZoom.current;
             panStart.current = { 
-              x: offsetXRef.current - gestureState.dx, 
-              y: offsetYRef.current - gestureState.dy 
+              x: currentOffsetX.current - gestureState.dx, 
+              y: currentOffsetY.current - gestureState.dy 
             };
           } else {
             const ratio = dist / initialDist.current;
             const newZoom = Math.min(2.5, Math.max(0.4, baseZoom.current * ratio));
-            setZoom(newZoom);
+            zoom.setValue(newZoom);
           }
         } else if (touches && touches.length === 1) {
           if (initialDist.current) {
-            // Transitioned from 2 fingers back to 1 finger
             initialDist.current = null;
             panStart.current = { 
-              x: offsetXRef.current - gestureState.dx, 
-              y: offsetYRef.current - gestureState.dy 
+              x: currentOffsetX.current - gestureState.dx, 
+              y: currentOffsetY.current - gestureState.dy 
             };
           }
-          // Single-finger swiping: pan the viewport like Google Maps!
           const newX = panStart.current.x + gestureState.dx;
           const newY = panStart.current.y + gestureState.dy;
-          setOffsetX(newX);
-          setOffsetY(newY);
+          offsetX.setValue(newX);
+          offsetY.setValue(newY);
         }
       },
       onPanResponderRelease: () => {
@@ -112,32 +130,16 @@ export default function GraphView({ progress }: GraphViewProps) {
     })
   ).current;
 
-  // Floating animation loop
-  useEffect(() => {
-    const updateTime = () => {
-      setTime((prev) => (prev + 1) % 10000);
-      animationFrameId.current = requestAnimationFrame(updateTime);
-    };
-    animationFrameId.current = requestAnimationFrame(updateTime);
-    
-    return () => {
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
-      }
-    };
-  }, []);
-
-  // Map progress logs to drink nodes
   const drinkLogs = progress.logs;
   const nodes: NodeItem[] = [
     {
       id: 'center-today',
-      label: progress.date,
+      label: 'Today',
       subLabel: `${progress.totalEffective}ml / ${progress.goal}ml`,
       tag: '#today',
       amount: progress.totalEffective,
       multiplier: 1.0,
-      color: theme.colors.accent,
+      color: theme.colors.text,
       type: 'day',
       baseAngle: 0,
       radius: 0
@@ -145,82 +147,55 @@ export default function GraphView({ progress }: GraphViewProps) {
   ];
 
   drinkLogs.forEach((log, index) => {
-    // Distribute angles evenly around the center node
     const baseAngle = (2 * Math.PI * index) / drinkLogs.length;
-    
-    // Resolve dynamic color from configurations
     const config = Object.values(LIQUID_CONFIGS).find(c => c.tag === log.tag);
     const color = config ? config.color : theme.colors.accent;
 
     nodes.push({
       id: log.id,
       label: `${log.amount}ml`,
-      subLabel: log.type.toUpperCase(),
+      subLabel: log.type,
       tag: log.tag,
       amount: log.amount,
       multiplier: config ? config.multiplier : 1.0,
       color,
       type: 'drink',
       baseAngle,
-      radius: 95 // distance from center node
+      radius: 95 
     });
   });
 
-  // Calculate base node radius based on container volume (e.g. 150ml vs 1000ml)
   const getBaseNodeRadius = (amount: number) => {
-    return Math.min(12, Math.max(4, 3 + (amount / 100)));
-  };
-
-  // Calculate animated coordinates (Applies both Zoom and Pan Offsets)
-  const getCoordinates = (node: NodeItem) => {
-    if (node.type === 'day') {
-      // Gentle center node floating
-      const x = CX + 3 * Math.sin(time * 0.02) + offsetX;
-      const y = CY + 3 * Math.cos(time * 0.02) + offsetY;
-      return { x, y };
-    }
-
-    // Drink nodes float in orbit
-    // Sinusoidal orbit oscillation + random offset waves + dynamic zoom factor + drag offsets
-    const orbitAngle = node.baseAngle + 0.05 * Math.sin(time * 0.01 + node.baseAngle);
-    const floatRadius = (node.radius * zoom) + 6 * Math.cos(time * 0.03 + node.id.charCodeAt(0));
-    
-    const x = CX + floatRadius * Math.cos(orbitAngle) + 4 * Math.sin(time * 0.04 + node.baseAngle) + offsetX;
-    const y = CY + floatRadius * Math.sin(orbitAngle) + 4 * Math.cos(time * 0.045 + node.baseAngle) + offsetY;
-    
-    return { x, y };
+    return Math.min(14, Math.max(6, 4 + (amount / 80)));
   };
 
   const handleZoomIn = () => {
     Haptics.selectionAsync();
-    setZoom(z => Math.min(2.5, z + 0.15));
+    Animated.timing(zoom, { toValue: Math.min(2.5, currentZoom.current + 0.15), duration: 150, useNativeDriver: true }).start();
   };
 
   const handleZoomOut = () => {
     Haptics.selectionAsync();
-    setZoom(z => Math.max(0.4, z - 0.15));
+    Animated.timing(zoom, { toValue: Math.max(0.4, currentZoom.current - 0.15), duration: 150, useNativeDriver: true }).start();
   };
 
   const handleZoomReset = () => {
     Haptics.selectionAsync();
-    setZoom(1.0);
-    setOffsetX(0); // Resets view position back to default center
-    setOffsetY(0);
+    Animated.spring(zoom, { toValue: 1.0, useNativeDriver: true }).start();
+    Animated.spring(offsetX, { toValue: 0, useNativeDriver: true }).start();
+    Animated.spring(offsetY, { toValue: 0, useNativeDriver: true }).start();
   };
 
   const centerNode = nodes[0];
-  const centerCoords = getCoordinates(centerNode);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.markdownHeader}># graph-view.md</Text>
+      <Text style={styles.header}>Visualizer</Text>
       
-      {/* Svg Interactive Graph Screen */}
       <View style={styles.graphContainer}>
         <View style={styles.canvasHeader}>
-          <Text style={styles.graphLabel}>Graph view of water-logs</Text>
+          <Text style={styles.graphLabel}>Interactive Graph</Text>
           
-          {/* Obsidian-Style Zoom Settings Overlay */}
           <View style={styles.zoomContainer}>
             <TouchableOpacity 
               style={styles.zoomBtn} 
@@ -235,7 +210,7 @@ export default function GraphView({ progress }: GraphViewProps) {
               onPress={handleZoomReset}
               activeOpacity={0.7}
             >
-              <Text style={styles.zoomResetText}>reset</Text>
+              <Text style={styles.zoomResetText}>Reset</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -248,171 +223,275 @@ export default function GraphView({ progress }: GraphViewProps) {
           </View>
         </View>
 
-        {/* Pan Handlers wrapper to capture 2-finger pinch gesture AND single-finger pan dragging */}
-        <View style={styles.canvasWrapper} {...panResponder.panHandlers}>
-          <Svg width="100%" height={CANVAS_HEIGHT} style={styles.svgCanvas}>
-            {/* Dynamic Grid Guidelines (Scales proportionally with zoom + shifts in sync with panning) */}
-            {[1, 2, 3].map((circleVal) => (
-              <Circle
-                key={circleVal}
-                cx={CX + offsetX}
-                cy={CY + offsetY}
-                r={circleVal * 55 * zoom}
-                fill="none"
-                stroke={theme.colors.borderMuted}
-                strokeWidth={0.5}
-                strokeDasharray="4 6"
-              />
-            ))}
-
-            {/* Render Link Edges first so they are layered behind the node buttons */}
-            {nodes.slice(1).map((node) => {
-              const coords = getCoordinates(node);
-              const isSelected = selectedNode?.id === node.id;
-              return (
-                <Line
-                  key={`line-${node.id}`}
-                  x1={centerCoords.x}
-                  y1={centerCoords.y}
-                  x2={coords.x}
-                  y2={coords.y}
-                  stroke={isSelected ? node.color : theme.colors.border}
-                  strokeWidth={isSelected ? 1.5 : 0.8}
-                  strokeDasharray={node.tag === '#water' ? undefined : '3 3'}
-                />
-              );
-            })}
-
-            {/* Render Drink Nodes */}
-            {nodes.slice(1).map((node) => {
-              const coords = getCoordinates(node);
-              const isSelected = selectedNode?.id === node.id;
-              
-              // Calculate responsive node radius: volume base * zoom scale
-              const baseRad = getBaseNodeRadius(node.amount);
-              const nodeRad = baseRad * zoom * (isSelected ? 1.4 : 1.0);
-              
-              return (
-                <G key={node.id} onPress={() => setSelectedNode(isSelected ? null : node)}>
-                  {/* Node outer glow on selection (scales with zoom) */}
-                  {isSelected && (
-                    <Circle
-                      cx={coords.x}
-                      cy={coords.y}
-                      r={nodeRad * 2}
-                      fill={node.color}
-                      opacity={0.25}
-                    />
-                  )}
-                  {/* Node Core */}
+        <View 
+          style={styles.canvasWrapper} 
+          {...panResponder.panHandlers}
+          onLayout={onLayout}
+        >
+          <Animated.View style={[StyleSheet.absoluteFill, {
+            transform: [
+              { translateX: offsetX },
+              { translateY: offsetY },
+              { scale: zoom }
+            ]
+          }]}>
+            
+            {/* Concentric stationary dotted background circles */}
+            <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
+              <G x={CX} y={CY}>
+                {[1, 3].map((circleVal) => (
                   <Circle
-                    cx={coords.x}
-                    cy={coords.y}
-                    r={nodeRad}
-                    fill={node.color}
-                    stroke={theme.colors.background}
-                    strokeWidth={1.5}
+                    key={circleVal}
+                    r={circleVal * 55}
+                    fill="none"
+                    stroke={theme.colors.borderMuted}
+                    strokeWidth={1}
+                    strokeDasharray="2 8"
                   />
-                  {/* Node Text tag */}
-                  <SvgText
-                    x={coords.x}
-                    y={coords.y - 12}
-                    fill={isSelected ? theme.colors.text : theme.colors.textMuted}
-                    fontSize={8}
-                    fontFamily={theme.typography.mono}
-                    textAnchor="middle"
-                    fontWeight={isSelected ? 'bold' : 'normal'}
-                  >
-                    {node.label}
-                  </SvgText>
-                </G>
+                ))}
+              </G>
+            </Svg>
+
+            {/* Orbiting Connecting Lines */}
+            {nodes.slice(1).map((node, index) => {
+              const isSelected = selectedNode?.id === node.id;
+              const lineLength = node.radius;
+              const baseAngle = node.baseAngle;
+
+              // Orbiting interpolation for this line
+              const spin_i = orbitAngle.interpolate({
+                inputRange: [0, 1],
+                outputRange: [`${baseAngle}rad`, `${baseAngle + 2 * Math.PI}rad`]
+              });
+
+              return (
+                <Animated.View
+                  key={`line-wrapper-${node.id}`}
+                  style={{
+                    position: 'absolute',
+                    left: CX - 0.75,
+                    top: CY - lineLength,
+                    width: 1.5,
+                    height: 2 * lineLength, // Center is at bottom-middle of the visible top half
+                    transform: [{ rotate: spin_i }]
+                  }}
+                  pointerEvents="none"
+                >
+                  <View
+                    style={{
+                      height: lineLength,
+                      width: 1.5,
+                      backgroundColor: isSelected ? node.color : theme.colors.border,
+                      opacity: isSelected ? 1.0 : (node.tag === '#water' ? 0.6 : 0.25),
+                      // Visual dotted/solid indicator
+                      borderStyle: node.tag === '#water' ? 'solid' : 'dashed',
+                      borderWidth: node.tag === '#water' ? 0 : 0.75,
+                      borderColor: isSelected ? node.color : theme.colors.border,
+                    }}
+                  />
+                </Animated.View>
               );
             })}
 
-            {/* Render Central Today Node */}
-            <G onPress={() => setSelectedNode(selectedNode?.id === centerNode.id ? null : centerNode)}>
-              {selectedNode?.id === centerNode.id && (
-                <Circle
-                  cx={centerCoords.x}
-                  cy={centerCoords.y}
-                  r={20 * zoom * 1.5}
-                  fill={theme.colors.accent}
-                  opacity={0.15}
-                />
-              )}
-              <Circle
-                cx={centerCoords.x}
-                cy={centerCoords.y}
-                r={12 * zoom}
-                fill="#000000"
-                stroke={theme.colors.accent}
-                strokeWidth={2}
-              />
-              <Circle
-                cx={centerCoords.x}
-                cy={centerCoords.y}
-                r={4 * zoom}
-                fill={theme.colors.accent}
-              />
-              <SvgText
-                x={centerCoords.x}
-                y={centerCoords.y - 18}
-                fill={theme.colors.text}
-                fontSize={10}
-                fontWeight="bold"
-                fontFamily={theme.typography.mono}
-                textAnchor="middle"
-              >
-                Today
-              </SvgText>
-            </G>
-          </Svg>
-        </View>
+            {/* Orbiting Nodes */}
+            {nodes.slice(1).map((node) => {
+              const isSelected = selectedNode?.id === node.id;
+              const baseRad = getBaseNodeRadius(node.amount);
+              const nodeRad = baseRad * (isSelected ? 1.4 : 1.0);
+              const baseAngle = node.baseAngle;
 
-        <Text style={styles.interactiveHint}>*Pinch to zoom. Swipe to pan. Tap nodes to inspect.*</Text>
-      </View>
+              // Orbiting interpolation for this node
+              const spin_i = orbitAngle.interpolate({
+                inputRange: [0, 1],
+                outputRange: [`${baseAngle}rad`, `${baseAngle + 2 * Math.PI}rad`]
+              });
 
-      {/* Selected Node Inspector Pane (Obsidian Panel Style) */}
-      <View style={styles.inspectorContainer}>
-        <Text style={styles.sectionTitle}>## node-inspector</Text>
-        
-        {selectedNode ? (
-          <View style={styles.inspectorCard}>
-            <View style={styles.yamlRow}>
-              <Text style={styles.yamlKey}>node_id: </Text>
-              <Text style={[styles.yamlVal, { color: selectedNode.color }]}>{selectedNode.id.substring(0, 12)}...</Text>
-            </View>
-            <View style={styles.yamlRow}>
-              <Text style={styles.yamlKey}>class: </Text>
-              <Text style={styles.yamlVal}>{selectedNode.type === 'day' ? 'daily_note' : 'liquid_log'}</Text>
-            </View>
-            <View style={styles.yamlRow}>
-              <Text style={styles.yamlKey}>label: </Text>
-              <Text style={styles.yamlVal}>{selectedNode.label} ({selectedNode.subLabel})</Text>
-            </View>
-            <View style={styles.yamlRow}>
-              <Text style={styles.yamlKey}>metadata_tags: </Text>
-              <Text style={[styles.yamlVal, { color: selectedNode.color }]}>[{selectedNode.tag}]</Text>
-            </View>
-            {selectedNode.type === 'drink' && (() => {
-              const eff = selectedNode.amount * selectedNode.multiplier;
-              const formattedEff = Number(eff.toFixed(1)); // Keeps 1 decimal only if fractional
+              // Reverse rotation to keep node content upright
+              const reverseSpin_i = orbitAngle.interpolate({
+                inputRange: [0, 1],
+                outputRange: [`-${baseAngle}rad`, `-${baseAngle + 2 * Math.PI}rad`]
+              });
+
+              // Node size constants
+              const NODE_BOX_SIZE = 80;
+
               return (
-                <View style={styles.yamlRow}>
-                  <Text style={styles.yamlKey}>hydration_ratio: </Text>
-                  <Text style={styles.yamlVal}>
-                    {Number(selectedNode.multiplier.toFixed(3))}x (effective: {formattedEff}ml)
-                  </Text>
-                </View>
+                <Animated.View
+                  key={`node-${node.id}`}
+                  style={{
+                    position: 'absolute',
+                    left: CX - NODE_BOX_SIZE / 2,
+                    top: CY - NODE_BOX_SIZE / 2,
+                    width: NODE_BOX_SIZE,
+                    height: NODE_BOX_SIZE,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transform: [
+                      { rotate: spin_i },
+                      { translateY: -node.radius },
+                      { rotate: reverseSpin_i }
+                    ],
+                  }}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedNode(isSelected ? null : node)}
+                    style={{
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 60,
+                      height: 60,
+                    }}
+                  >
+                    {/* Selected glow ring */}
+                    {isSelected && (
+                      <View
+                        style={{
+                          position: 'absolute',
+                          width: nodeRad * 3.5,
+                          height: nodeRad * 3.5,
+                          borderRadius: 99,
+                          backgroundColor: node.color,
+                          opacity: 0.15,
+                        }}
+                      />
+                    )}
+
+                    {/* Node circle */}
+                    <View
+                      style={{
+                        width: nodeRad * 2,
+                        height: nodeRad * 2,
+                        borderRadius: 99,
+                        backgroundColor: node.color,
+                        borderWidth: 2,
+                        borderColor: theme.colors.background,
+                      }}
+                    />
+
+                    {/* Label */}
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: -12,
+                        alignItems: 'center',
+                        width: 100,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: theme.typography.sans,
+                          fontSize: 10,
+                          fontWeight: isSelected ? 'bold' : '500',
+                          color: isSelected ? theme.colors.text : theme.colors.textMuted,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {node.label}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </Animated.View>
               );
-            })()}
-          </View>
-        ) : (
-          <View style={styles.inspectorPlaceholder}>
-            <Text style={styles.placeholderText}>No node selected.</Text>
-          </View>
-        )}
+            })}
+
+            {/* Center Node (stationary) */}
+            <View
+              style={{
+                position: 'absolute',
+                left: CX - 40,
+                top: CY - 40,
+                width: 80,
+                height: 80,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setSelectedNode(selectedNode?.id === centerNode.id ? null : centerNode)}
+                style={{
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {selectedNode?.id === centerNode.id && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      width: 48,
+                      height: 48,
+                      borderRadius: 99,
+                      backgroundColor: theme.colors.text,
+                      opacity: 0.1,
+                    }}
+                  />
+                )}
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 99,
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderWidth: 2,
+                    borderColor: theme.colors.text,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                />
+                <Text
+                  style={{
+                    position: 'absolute',
+                    top: -18,
+                    fontFamily: theme.typography.sans,
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    color: theme.colors.text,
+                    textAlign: 'center',
+                  }}
+                >
+                  Today
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+          </Animated.View>
+        </View>
+        <Text style={styles.interactiveHint}>Pinch to zoom, swipe to pan, tap nodes</Text>
       </View>
+
+      <Text style={styles.subHeader}>Node Inspector</Text>
+      {selectedNode ? (
+        <View style={styles.inspectorCard}>
+          <View style={styles.inspectorRow}>
+            <Text style={styles.inspectorLabel}>Type</Text>
+            <Text style={[styles.inspectorValue, { color: selectedNode.color }]}>{selectedNode.type === 'day' ? 'Root Node' : selectedNode.subLabel.charAt(0).toUpperCase() + selectedNode.subLabel.slice(1)}</Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.inspectorRow}>
+            <Text style={styles.inspectorLabel}>Volume</Text>
+            <Text style={styles.inspectorValue}>{selectedNode.label}</Text>
+          </View>
+          <View style={styles.divider} />
+          {selectedNode.type === 'drink' ? (
+            <View style={styles.inspectorRow}>
+              <Text style={styles.inspectorLabel}>Hydration Factor</Text>
+              <Text style={styles.inspectorValue}>
+                {Number(selectedNode.multiplier.toFixed(2))}x ({Number((selectedNode.amount * selectedNode.multiplier).toFixed(1))}ml net)
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.inspectorRow}>
+              <Text style={styles.inspectorLabel}>Progress</Text>
+              <Text style={styles.inspectorValue}>{selectedNode.subLabel}</Text>
+            </View>
+          )}
+        </View>
+      ) : (
+        <View style={styles.inspectorPlaceholder}>
+          <Text style={styles.placeholderText}>Select a node to view details</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -423,132 +502,128 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
     padding: theme.spacing.md,
   },
-  markdownHeader: {
-    fontFamily: theme.typography.mono,
-    fontSize: 18,
+  header: {
+    fontFamily: theme.typography.sans,
+    fontSize: 22,
     fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
+    marginBottom: theme.spacing.md,
+  },
+  subHeader: {
+    fontFamily: theme.typography.sans,
+    fontSize: 17,
+    fontWeight: theme.typography.weight.semibold,
+    color: theme.colors.text,
+    marginTop: theme.spacing.sm,
     marginBottom: theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    paddingBottom: 6,
   },
   graphContainer: {
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
-    marginBottom: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
   },
   canvasHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.sm,
-    paddingBottom: theme.spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.borderMuted,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border,
   },
   graphLabel: {
-    fontFamily: theme.typography.mono,
-    fontSize: 10,
-    color: theme.colors.textMuted,
+    fontFamily: theme.typography.sans,
+    fontSize: 14,
+    fontWeight: theme.typography.weight.medium,
+    color: theme.colors.text,
   },
   canvasWrapper: {
     width: '100%',
     height: CANVAS_HEIGHT,
+    overflow: 'hidden',
   },
   svgCanvas: {
-    backgroundColor: '#030303',
+    backgroundColor: 'transparent',
   },
   zoomContainer: {
     flexDirection: 'row',
-    backgroundColor: '#050505',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: 3,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 8,
     overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
   },
   zoomBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   zoomBtnText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 11,
-    fontWeight: 'bold',
+    fontFamily: theme.typography.sans,
+    fontSize: 14,
+    fontWeight: theme.typography.weight.medium,
     color: theme.colors.text,
   },
   zoomResetBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: theme.colors.borderMuted,
-    backgroundColor: '#050505',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   zoomResetText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 8,
-    color: theme.colors.accentAmber,
-    fontWeight: 'bold',
-  },
-  interactiveHint: {
-    fontFamily: theme.typography.mono,
-    fontSize: 9,
-    color: theme.colors.textSubtle,
-    marginVertical: theme.spacing.sm,
-    textAlign: 'center',
-  },
-  inspectorContainer: {
-    gap: theme.spacing.sm,
-  },
-  sectionTitle: {
-    fontFamily: theme.typography.mono,
+    fontFamily: theme.typography.sans,
     fontSize: 12,
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.semibold,
+    fontWeight: theme.typography.weight.medium,
+  },
+  interactiveHint: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    padding: 12,
+    textAlign: 'center',
+    backgroundColor: theme.colors.surfaceElevated,
   },
   inspectorCard: {
-    backgroundColor: '#050505',
-    borderWidth: 1,
-    borderColor: theme.colors.borderMuted,
-    borderRadius: theme.borderRadius.sm,
-    padding: theme.spacing.md,
-    gap: 4,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing.md,
+  },
+  inspectorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.border,
+  },
+  inspectorLabel: {
+    fontFamily: theme.typography.sans,
+    color: theme.colors.textMuted,
+    fontSize: 15,
+  },
+  inspectorValue: {
+    fontFamily: theme.typography.sans,
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: theme.typography.weight.semibold,
   },
   inspectorPlaceholder: {
-    backgroundColor: '#030303',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
-    padding: theme.spacing.lg,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.xl,
     alignItems: 'center',
   },
   placeholderText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 11,
-    color: theme.colors.textSubtle,
-  },
-  yamlRow: {
-    flexDirection: 'row',
-  },
-  yamlKey: {
-    fontFamily: theme.typography.mono,
-    color: theme.colors.accentAmber,
-    fontSize: 11,
-  },
-  yamlVal: {
-    fontFamily: theme.typography.mono,
-    color: theme.colors.text,
-    fontSize: 11,
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
+    color: theme.colors.textMuted,
   },
 });

@@ -5,11 +5,13 @@ const SETTINGS_KEY = '@obsidian_water_tracker_settings';
 const LOGS_KEY = '@obsidian_water_tracker_logs';
 
 export const DEFAULT_SETTINGS: UserSettings = {
+  userName: '',
   weight: 70,
   weightUnit: 'kg',
   activityLevel: 'moderate',
   customGoal: null,
   useAutoGoal: true,
+  moduleOrder: ['hydration', 'training', 'capital', 'knowledge'],
 };
 
 // Calculate goal dynamically based on weight and activity level

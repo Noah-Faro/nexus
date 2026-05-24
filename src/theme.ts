@@ -3,23 +3,23 @@ export const theme = {
     // Pure Black for iPhone 11 Pro OLED screen battery saving & contrast
     background: '#000000',
     // Secondary panels and card sheets
-    surface: '#121212',
-    surfaceElevated: '#1a1a1a',
-    // Minimalist panel dividers resembling Obsidian panes
-    border: '#2e2e2e',
-    borderMuted: '#1e1e1e',
+    surface: '#0a0a0a',
+    surfaceElevated: '#151515',
+    // Minimalist panel dividers
+    border: '#222222',
+    borderMuted: '#111111',
     // Typography colors
-    text: '#e0e0e0',          // Off-white for reduced eye strain
-    textMuted: '#7a7a7a',     // Light grey for tags, metrics, and secondary details
-    textSubtle: '#4e4e4e',    // Dark grey for background guidelines
-    // Signature Obsidian colors
-    accent: '#754ec3',        // Obsidian Purple
-    accentAmber: '#e5b567',   // Minimalist warm yellow/amber
-    accentRed: '#e95656',     // Alert/Reset color
-    accentGreen: '#4ea64e',   // Success/Completed color
+    text: '#ffffff',          // Pure white for high contrast OLED
+    textMuted: '#8e8e93',     // iOS system grey for secondary text
+    textSubtle: '#3a3a3c',    // Dark grey for background guidelines
+    // Accents
+    accent: '#0a84ff',        // iOS Blue
+    accentAmber: '#ff9f0a',   // iOS Orange
+    accentRed: '#ff453a',     // iOS Red
+    accentGreen: '#32d74b',   // iOS Green
     // Transparent accents
-    accentFade: 'rgba(117, 78, 195, 0.15)',
-    accentAmberFade: 'rgba(229, 181, 103, 0.15)',
+    accentFade: 'rgba(10, 132, 255, 0.15)',
+    accentAmberFade: 'rgba(255, 159, 10, 0.15)',
   },
   spacing: {
     xs: 4,
@@ -29,15 +29,15 @@ export const theme = {
     xl: 32,
   },
   borderRadius: {
-    xs: 3,
-    sm: 6,
-    md: 10,
-    lg: 16,
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 18,
     round: 9999,
   },
   typography: {
-    mono: 'Courier New', // Standard fallback iOS monospaced font
-    sans: 'System',
+    mono: 'System', // Fallback, changing everything to System
+    sans: 'System', // SF Pro native on iOS
     weight: {
       light: '300' as const,
       regular: '400' as const,

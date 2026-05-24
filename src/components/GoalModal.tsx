@@ -14,50 +14,30 @@ export default function GoalModal({ visible, onClose, effectiveIntake }: GoalMod
     <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.container}>
-          {/* Obsidian Tab Header Layout */}
-          <View style={styles.header}>
-            <Award size={16} color={theme.colors.accent} />
-            <Text style={styles.headerText}>[[goal-achieved.md]]</Text>
+          <View style={styles.badgeContainer}>
+            <View style={styles.circle}>
+              <Check size={32} color="#000000" />
+            </View>
           </View>
 
-          {/* YAML Frontmatter Alert */}
-          <View style={styles.body}>
-            <Text style={styles.yamlDivider}>---</Text>
-            
-            <View style={styles.badgeContainer}>
-              <View style={styles.circle}>
-                <Check size={28} color="#000000" />
-              </View>
+          <Text style={styles.titleText}>Target Reached</Text>
+          <Text style={styles.messageText}>You've successfully hit your hydration goal for today.</Text>
+          
+          <View style={styles.statsContainer}>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{effectiveIntake} ml</Text>
+              <Text style={styles.statLabel}>Net Intake</Text>
             </View>
-
-            <Text style={styles.titleText}># TARGET ATTAINED</Text>
-            
-            <View style={styles.yamlBlock}>
-              <View style={styles.yamlRow}>
-                <Text style={styles.yamlKey}>status: </Text>
-                <Text style={styles.yamlVal}>#completed</Text>
-              </View>
-              <View style={styles.yamlRow}>
-                <Text style={styles.yamlKey}>intake_net: </Text>
-                <Text style={styles.yamlVal}>{effectiveIntake} ml</Text>
-              </View>
-              <View style={styles.yamlRow}>
-                <Text style={styles.yamlKey}>hydration_rate: </Text>
-                <Text style={styles.yamlVal}>100%+</Text>
-              </View>
-              <View style={styles.yamlRow}>
-                <Text style={styles.yamlKey}>message: </Text>
-                <Text style={styles.yamlVal}>"Dynamic target successfully achieved."</Text>
-              </View>
+            <View style={styles.divider} />
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>100%+</Text>
+              <Text style={styles.statLabel}>Hydration</Text>
             </View>
-
-            <Text style={styles.yamlDivider}>---</Text>
-
-            {/* Obsidian Markdown Link Style Button */}
-            <TouchableOpacity style={styles.dismissBtn} onPress={onClose} activeOpacity={0.7}>
-              <Text style={styles.dismissBtnText}>[Dismiss and Return]</Text>
-            </TouchableOpacity>
           </View>
+
+          <TouchableOpacity style={styles.dismissBtn} onPress={onClose} activeOpacity={0.8}>
+            <Text style={styles.dismissBtnText}>Awesome</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -67,7 +47,7 @@ export default function GoalModal({ visible, onClose, effectiveIntake }: GoalMod
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: theme.spacing.lg,
@@ -75,95 +55,85 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     maxWidth: 320,
-    backgroundColor: theme.colors.background,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.lg,
     overflow: 'hidden',
-  },
-  header: {
-    flexDirection: 'row',
+    padding: theme.spacing.xl,
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#050505',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.borderMuted,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 10,
-  },
-  headerText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 11,
-    color: theme.colors.text,
-  },
-  body: {
-    padding: theme.spacing.lg,
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
-  yamlDivider: {
-    fontFamily: theme.typography.mono,
-    color: theme.colors.accent,
-    letterSpacing: 2,
-    fontSize: 14,
-    alignSelf: 'stretch',
-    textAlign: 'center',
   },
   badgeContainer: {
-    marginVertical: theme.spacing.sm,
+    marginBottom: theme.spacing.lg,
   },
   circle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: theme.colors.accent,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: theme.colors.text,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: theme.colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
     shadowRadius: 10,
-    elevation: 6,
+    elevation: 4,
   },
   titleText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 16,
+    fontFamily: theme.typography.sans,
+    fontSize: 22,
     fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
-    marginBottom: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
+    textAlign: 'center',
   },
-  yamlBlock: {
-    backgroundColor: '#050505',
-    borderWidth: 1,
-    borderColor: theme.colors.borderMuted,
-    borderRadius: theme.borderRadius.sm,
-    padding: theme.spacing.md,
-    alignSelf: 'stretch',
-    gap: 4,
+  messageText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
+    color: theme.colors.textMuted,
+    textAlign: 'center',
+    marginBottom: theme.spacing.xl,
+    lineHeight: 20,
   },
-  yamlRow: {
+  statsContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.md,
+    width: '100%',
+    marginBottom: theme.spacing.xl,
   },
-  yamlKey: {
-    fontFamily: theme.typography.mono,
-    color: theme.colors.accentAmber,
-    fontSize: 11,
+  statBox: {
+    flex: 1,
+    alignItems: 'center',
   },
-  yamlVal: {
-    fontFamily: theme.typography.mono,
+  divider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.border,
+    marginHorizontal: theme.spacing.sm,
+  },
+  statValue: {
+    fontFamily: theme.typography.sans,
+    fontSize: 17,
+    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
-    fontSize: 11,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textSubtle,
+    fontWeight: theme.typography.weight.medium,
   },
   dismissBtn: {
-    marginTop: theme.spacing.sm,
-    paddingVertical: 10,
-    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.colors.text,
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
   },
   dismissBtnText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 12,
-    color: theme.colors.accent,
+    fontFamily: theme.typography.sans,
+    fontSize: 16,
+    color: '#000000',
     fontWeight: theme.typography.weight.bold,
   },
 });

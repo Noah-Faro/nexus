@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, SafeAreaView, Alert, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import { useFonts, Outfit_400Regular, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
 
 // Core imports
 import { theme } from './src/theme';
@@ -12,7 +13,8 @@ import {
   loadLogs, 
   saveLogs, 
   calculateGoal, 
-  getTodayProgress 
+  getTodayProgress,
+  getAggregatedProgress
 } from './src/storage';
 
 // Component imports
@@ -26,8 +28,10 @@ import SettingsModal from './src/components/SettingsModal';
 import GoalModal from './src/components/GoalModal';
 import ConsoleHelpModal from './src/components/ConsoleHelpModal';
 import AppAlertModal, { AppAlertButton } from './src/components/AppAlertModal';
+import NexusVault from './src/components/NexusVault';
 
 export default function App() {
+  const [activeApp, setActiveApp] = useState<'vault' | 'hydration'>('vault');
   const [activeView, setActiveView] = useState<'tracker' | 'stats' | 'calendar'>('tracker');
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [logs, setLogs] = useState<DrinkLog[]>([]);
@@ -59,6 +63,12 @@ export default function App() {
     });
   };
 
+  const [fontsLoaded] = useFonts({
+    Outfit_400Regular,
+    Outfit_600SemiBold,
+    Outfit_700Bold,
+  });
+
   // Load configuration and data from local storage on launch
   useEffect(() => {
     async function initApp() {
@@ -84,7 +94,7 @@ export default function App() {
     };
   }, []);
 
-  if (!settings) {
+  if (!settings || !fontsLoaded) {
     return (
       <View style={styles.loadingScreen}>
         <Image 
@@ -145,15 +155,34 @@ export default function App() {
 
   // Save profile metrics settings
   const handleSaveSettings = async (updatedSettings: UserSettings) => {
+    const changedFields: string[] = [];
+    if (settings) {
+      if (settings.userName !== updatedSettings.userName) changedFields.push(`Name: ${updatedSettings.userName || 'Cleared'}`);
+      if (settings.weight !== updatedSettings.weight) changedFields.push(`Weight: ${updatedSettings.weight}`);
+      if (settings.weightUnit !== updatedSettings.weightUnit) changedFields.push(`Unit: ${updatedSettings.weightUnit}`);
+      if (settings.activityLevel !== updatedSettings.activityLevel) changedFields.push(`Activity: ${updatedSettings.activityLevel}`);
+      if (settings.useAutoGoal !== updatedSettings.useAutoGoal) changedFields.push(`Goal Mode: ${updatedSettings.useAutoGoal ? 'Auto' : 'Manual'}`);
+      if (settings.customGoal !== updatedSettings.customGoal) changedFields.push(updatedSettings.customGoal ? `Manual Goal: ${updatedSettings.customGoal}ml` : 'Manual Goal: Cleared');
+      
+      const oldGoal = calculateGoal(settings);
+      const newGoal = calculateGoal(updatedSettings);
+      if (oldGoal !== newGoal) {
+        changedFields.push(`Water Goal: ${oldGoal}ml ➝ ${newGoal}ml`);
+      }
+      // Note: we don't list moduleOrder here so that silent drags don't popup alerts
+    }
+
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
     
-    const newGoal = calculateGoal(updatedSettings);
-    triggerAlert(
-      'Config Saved',
-      `Dynamic profile successfully loaded.\nNew hydration target: ${newGoal}ml`,
-      [{ text: 'OK' }]
-    );
+    // Only alert if there were visible profile changes
+    if (changedFields.length > 0) {
+      triggerAlert(
+        'Config Saved',
+        `Dynamic profile successfully loaded.\n\nChanges:\n• ${changedFields.join('\n• ')}`,
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   // Process slash commands from Obsidian command console
@@ -242,6 +271,7 @@ export default function App() {
               onPress: async () => {
                 setLogs([]);
                 setSettings({
+                  userName: '',
                   weight: 70,
                   weightUnit: 'kg',
                   activityLevel: 'moderate',
@@ -250,6 +280,7 @@ export default function App() {
                 });
                 await saveLogs([]);
                 await saveSettings({
+                  userName: '',
                   weight: 70,
                   weightUnit: 'kg',
                   activityLevel: 'moderate',
@@ -273,53 +304,77 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <ExpoStatusBar style="light" />
       <View style={styles.container}>
-        {/* Obsidian-Style Tab and Title Header */}
-        <Header 
-          activeView={activeView} 
-          onViewChange={setActiveView} 
-          onOpenSettings={() => setSettingsVisible(true)} 
-        />
+        {activeApp === 'vault' ? (
+          <NexusVault 
+            settings={settings}
+            onOpenSettings={() => setSettingsVisible(true)}
+            onSelectApp={(app) => {
+              if (app === 'hydration') {
+                setActiveApp('hydration');
+              }
+            }}
+            onShowLockedAlert={(moduleName) => {
+              triggerAlert(
+                'Module Locked',
+                `This life-engineering module (${moduleName}) is currently locked in your local vault. Create a new markdown blueprint to deploy.`,
+                [{ text: 'Dismiss', style: 'cancel' }]
+              );
+            }}
+            onUpdateSettings={handleSaveSettings}
+            activeDaysCount={Object.keys(getAggregatedProgress(logs, settings)).filter(k => getAggregatedProgress(logs, settings)[k].logs.length > 0).length}
+          />
+        ) : (
+          <>
+            {/* Obsidian-Style Tab and Title Header */}
+            <Header 
+              activeView={activeView} 
+              onViewChange={setActiveView} 
+              onOpenSettings={() => setSettingsVisible(true)} 
+              onGoBackToHub={() => setActiveApp('vault')}
+            />
 
-        {/* Dynamic view manager */}
-        <View style={styles.viewContainer}>
-          {activeView === 'tracker' && (
-            <KeyboardAvoidingView 
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              style={styles.trackerContainer}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 135 : 0}
-            >
-              {/* Daily log scroll checklist */}
-              <DailyNoteView 
-                progress={todayProgress} 
-                onDeleteLog={handleDeleteLog} 
-              />
-              
-              {/* Preset tags selection grid */}
-              <PresetButtons 
-                selectedType={selectedType}
-                onSelectType={setSelectedType}
-                onQuickLog={handleLogDrink}
-                isExpanded={isLoggingExpanded}
-                onToggleExpand={() => setIsLoggingExpanded(!isLoggingExpanded)}
-              />
+            {/* Dynamic view manager */}
+            <View style={styles.viewContainer}>
+              {activeView === 'tracker' && (
+                <KeyboardAvoidingView 
+                  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                  style={styles.trackerContainer}
+                  keyboardVerticalOffset={Platform.OS === 'ios' ? 135 : 0}
+                >
+                  {/* Daily log scroll checklist */}
+                  <DailyNoteView 
+                    progress={todayProgress} 
+                    onDeleteLog={handleDeleteLog} 
+                  />
+                  
+                  {/* Preset tags selection grid */}
+                  <PresetButtons 
+                    selectedType={selectedType}
+                    onSelectType={setSelectedType}
+                    onQuickLog={handleLogDrink}
+                    isExpanded={isLoggingExpanded}
+                    onSetExpanded={(expanded) => setIsLoggingExpanded(expanded)}
+                  />
 
-              {/* Console command palette */}
-              <CommandPalette 
-                selectedType={selectedType}
-                onLog={handleLogDrink}
-                onCommand={handleCommand}
-              />
-            </KeyboardAvoidingView>
-          )}
+                  {/* Console command palette */}
+                  <CommandPalette 
+                    selectedType={selectedType}
+                    onLog={handleLogDrink}
+                    onCommand={handleCommand}
+                  />
+                </KeyboardAvoidingView>
+              )}
 
-          {activeView === 'stats' && (
-            <GraphView progress={todayProgress} />
-          )}
+              {activeView === 'stats' && (
+                <GraphView progress={todayProgress} />
+              )}
 
-          {activeView === 'calendar' && (
-            <CalendarHeatmap logs={logs} settings={settings} />
-          )}
-        </View>
+              {activeView === 'calendar' && (
+                <CalendarHeatmap logs={logs} settings={settings} />
+              )}
+            </View>
+          </>
+        )}
 
         {/* Profile/Goal Frontmatter Editor */}
         <SettingsModal 

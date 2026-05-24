@@ -8,11 +8,13 @@ export interface DrinkLog {
 }
 
 export interface UserSettings {
+  userName?: string;          // user's name for greetings
   weight: number;             // e.g., 75
   weightUnit: 'kg' | 'lbs';   // 'kg' or 'lbs'
   activityLevel: 'sedentary' | 'moderate' | 'active'; // modifier for weight calculation
   customGoal: number | null;  // manual target in ml (overrides automatic weight-based goal if set)
   useAutoGoal: boolean;       // whether to calculate goals automatically based on weight
+  moduleOrder: string[];      // order of modules in the Vault
 }
 
 export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine';
@@ -31,7 +33,7 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#water',
     label: 'Water',
     multiplier: 1.0,
-    color: '#3490dc', // Royal Blue
+    color: '#0a84ff', // iOS Blue
     standardPreset: 250,
     presets: [250, 330, 500, 650]
   },
@@ -47,7 +49,7 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#tea',
     label: 'Tea',
     multiplier: 0.8,
-    color: '#4ea64e', // Sage Green
+    color: '#32d74b', // iOS Green
     standardPreset: 250,
     presets: [150, 250, 330, 500]
   },
@@ -55,7 +57,7 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#soda',
     label: 'Soda',
     multiplier: 0.4,
-    color: '#e95656', // Cola/Crimson Red
+    color: '#ff453a', // iOS Red
     standardPreset: 330,
     presets: [250, 330, 500, 650]
   },
@@ -63,7 +65,7 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#juice',
     label: 'Juice',
     multiplier: 0.5,
-    color: '#d46b32', // Orange Rust
+    color: '#ff9f0a', // iOS Orange
     standardPreset: 250,
     presets: [250, 330, 500, 650]
   },
@@ -71,7 +73,7 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#sports-drink',
     label: 'Isotonic',
     multiplier: 0.8,
-    color: '#754ec3', // Obsidian Purple
+    color: '#bf5af2', // iOS Purple
     standardPreset: 500,
     presets: [250, 330, 500, 650]
   },
@@ -79,7 +81,7 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#beer',
     label: 'Beer',
     multiplier: 0.1,
-    color: '#e5b567', // Golden Yellow
+    color: '#ffd60a', // iOS Yellow
     standardPreset: 500,
     presets: [330, 500, 650, 1000]
   },
@@ -87,7 +89,7 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#wine',
     label: 'Wine',
     multiplier: -0.4, // Dehydrating
-    color: '#800020', // Burgundy
+    color: '#ff375f', // iOS Pink/Rose
     standardPreset: 150,
     presets: [150, 250, 330, 500]
   }

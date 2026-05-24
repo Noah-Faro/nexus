@@ -1,64 +1,69 @@
 import React from 'react';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
-import { Settings, BarChart2, Calendar, FileText } from 'lucide-react-native';
+import { Settings, BarChart2, Calendar, Droplet, ChevronLeft } from 'lucide-react-native';
 import { theme } from '../theme';
 
 interface HeaderProps {
   activeView: 'tracker' | 'stats' | 'calendar';
   onViewChange: (view: 'tracker' | 'stats' | 'calendar') => void;
   onOpenSettings: () => void;
+  onGoBackToHub: () => void;
 }
 
-export default function Header({ activeView, onViewChange, onOpenSettings }: HeaderProps) {
+export default function Header({ activeView, onViewChange, onOpenSettings, onGoBackToHub }: HeaderProps) {
   return (
     <View style={styles.container}>
-      {/* Obsidian-Style Tab Bar */}
-      <View style={styles.tabBar}>
+      {/* iOS Style Title Bar */}
+      <View style={styles.titleBar}>
+        <TouchableOpacity style={styles.backBtn} onPress={onGoBackToHub} activeOpacity={0.7}>
+          <ChevronLeft size={28} color={theme.colors.accent} style={{ marginLeft: -8 }} />
+          <Text style={styles.backText}>Vault</Text>
+        </TouchableOpacity>
+        
+        <Text style={styles.titleText}>
+          {activeView === 'tracker' && 'Hydration'}
+          {activeView === 'stats' && 'Insights'}
+          {activeView === 'calendar' && 'History'}
+        </Text>
+
+        <TouchableOpacity style={styles.settingsBtn} onPress={onOpenSettings} activeOpacity={0.7}>
+          <Settings size={22} color={theme.colors.accent} />
+        </TouchableOpacity>
+      </View>
+
+      {/* iOS Segmented Control */}
+      <View style={styles.segmentedControl}>
         <TouchableOpacity 
-          style={[styles.tab, activeView === 'tracker' && styles.activeTab]} 
+          style={[styles.segment, activeView === 'tracker' && styles.activeSegment]} 
           onPress={() => onViewChange('tracker')}
+          activeOpacity={0.8}
         >
-          <FileText size={14} color={activeView === 'tracker' ? theme.colors.accent : theme.colors.textMuted} />
-          <Text style={[styles.tabText, activeView === 'tracker' && styles.activeTabText]}>
-            water-intake.md
+          <Droplet size={14} color={activeView === 'tracker' ? '#000' : theme.colors.text} />
+          <Text style={[styles.segmentText, activeView === 'tracker' && styles.activeSegmentText]}>
+            Today
           </Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={[styles.tab, activeView === 'stats' && styles.activeTab]} 
+          style={[styles.segment, activeView === 'stats' && styles.activeSegment]} 
           onPress={() => onViewChange('stats')}
+          activeOpacity={0.8}
         >
-          <BarChart2 size={14} color={activeView === 'stats' ? theme.colors.accent : theme.colors.textMuted} />
-          <Text style={[styles.tabText, activeView === 'stats' && styles.activeTabText]}>
-            graph-view.md
+          <BarChart2 size={14} color={activeView === 'stats' ? '#000' : theme.colors.text} />
+          <Text style={[styles.segmentText, activeView === 'stats' && styles.activeSegmentText]}>
+            Stats
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.tab, activeView === 'calendar' && styles.activeTab]} 
+          style={[styles.segment, activeView === 'calendar' && styles.activeSegment]} 
           onPress={() => onViewChange('calendar')}
+          activeOpacity={0.8}
         >
-          <Calendar size={14} color={activeView === 'calendar' ? theme.colors.accent : theme.colors.textMuted} />
-          <Text style={[styles.tabText, activeView === 'calendar' && styles.activeTabText]}>
-            heatmap.md
+          <Calendar size={14} color={activeView === 'calendar' ? '#000' : theme.colors.text} />
+          <Text style={[styles.segmentText, activeView === 'calendar' && styles.activeSegmentText]}>
+            Trends
           </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Pane Title Bar */}
-      <View style={styles.titleBar}>
-        <View style={styles.titleContainer}>
-          <Text style={styles.linkBrackets}>[[</Text>
-          <Text style={styles.titleText}>
-            {activeView === 'tracker' && 'Daily Log'}
-            {activeView === 'stats' && 'Insights'}
-            {activeView === 'calendar' && 'Annual Heatmap'}
-          </Text>
-          <Text style={styles.linkBrackets}>]]</Text>
-        </View>
-
-        <TouchableOpacity style={styles.settingsButton} onPress={onOpenSettings} activeOpacity={0.7}>
-          <Settings size={18} color={theme.colors.textMuted} />
         </TouchableOpacity>
       </View>
     </View>
@@ -67,69 +72,72 @@ export default function Header({ activeView, onViewChange, onOpenSettings }: Hea
 
 const styles = StyleSheet.create({
   container: {
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
     backgroundColor: theme.colors.background,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.borderMuted,
-    backgroundColor: '#050505',
-    paddingTop: 10,
-  },
-  tab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.borderMuted,
-    gap: 6,
-  },
-  activeTab: {
-    backgroundColor: theme.colors.background,
-    borderBottomWidth: 1.5,
-    borderBottomColor: theme.colors.accent,
-  },
-  tabText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 11,
-    color: theme.colors.textMuted,
-  },
-  activeTabText: {
-    color: theme.colors.text,
+    paddingBottom: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
   },
   titleBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
+    paddingBottom: 16,
   },
-  titleContainer: {
+  backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
-  linkBrackets: {
-    fontFamily: theme.typography.mono,
-    fontSize: 16,
+  backText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 17,
     color: theme.colors.accent,
-    fontWeight: theme.typography.weight.bold,
+    marginLeft: -4,
   },
   titleText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 15,
-    fontWeight: theme.typography.weight.bold,
+    fontFamily: theme.typography.sans,
+    fontSize: 17,
+    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
-    paddingHorizontal: 2,
+    textAlign: 'center',
+    flex: 1,
   },
-  settingsButton: {
-    padding: 6,
+  settingsBtn: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surfaceElevated,
     borderRadius: theme.borderRadius.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    marginHorizontal: theme.spacing.md,
+    padding: 2,
+  },
+  segment: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    borderRadius: theme.borderRadius.sm - 2,
+    gap: 6,
+  },
+  activeSegment: {
+    backgroundColor: theme.colors.text, // White background for active segment
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
+  },
+  segmentText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    fontWeight: theme.typography.weight.medium,
+    color: theme.colors.text,
+  },
+  activeSegmentText: {
+    color: '#000000', // Black text on white background
+    fontWeight: theme.typography.weight.semibold,
   },
 });

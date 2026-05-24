@@ -1,7 +1,6 @@
-import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Keyboard } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Keyboard, Animated, PanResponder } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { ChevronDown, ChevronUp } from 'lucide-react-native';
 import { theme } from '../theme';
 import { LiquidType, LIQUID_CONFIGS } from '../types';
 
@@ -10,258 +9,341 @@ interface PresetButtonsProps {
   onSelectType: (type: LiquidType) => void;
   onQuickLog: (amount: number) => void;
   isExpanded: boolean;
-  onToggleExpand: () => void;
+  onSetExpanded: (expanded: boolean) => void;
 }
-
-
 
 export default function PresetButtons({ 
   selectedType, 
   onSelectType, 
   onQuickLog,
   isExpanded,
-  onToggleExpand
+  onSetExpanded
 }: PresetButtonsProps) {
 
-  const touchStartY = React.useRef(0);
+  const MIN_HEIGHT = 45;
+  const MAX_HEIGHT = 380;
+  
+  const animatedHeight = useRef(new Animated.Value(isExpanded ? MAX_HEIGHT : MIN_HEIGHT)).current;
+  const currentHeight = useRef(isExpanded ? MAX_HEIGHT : MIN_HEIGHT);
+  const startHeightRef = useRef(isExpanded ? MAX_HEIGHT : MIN_HEIGHT);
+  const localExpandedRef = useRef(isExpanded);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    animatedHeight.addListener(({ value }) => {
+      currentHeight.current = value;
+    });
+    return () => {
+      animatedHeight.removeAllListeners();
+    };
+  }, [animatedHeight]);
+
+  useEffect(() => {
+    localExpandedRef.current = isExpanded;
+    if (!isDraggingRef.current) {
+      Animated.spring(animatedHeight, {
+        toValue: isExpanded ? MAX_HEIGHT : MIN_HEIGHT,
+        useNativeDriver: false,
+        bounciness: 4,
+      }).start();
+    }
+  }, [isExpanded, animatedHeight]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
+      onPanResponderGrant: () => {
+        isDraggingRef.current = true;
+        animatedHeight.stopAnimation();
+        startHeightRef.current = currentHeight.current;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        let newHeight = startHeightRef.current - gestureState.dy;
+        if (newHeight > MAX_HEIGHT + 20) newHeight = MAX_HEIGHT + 20; // slight overscroll resistance
+        if (newHeight < MIN_HEIGHT) newHeight = MIN_HEIGHT;
+        animatedHeight.setValue(newHeight);
+
+        // Real-time threshold check
+        const middlePoint = (MAX_HEIGHT + MIN_HEIGHT) / 2;
+        const newExpanded = newHeight > middlePoint;
+        if (newExpanded !== localExpandedRef.current) {
+          localExpandedRef.current = newExpanded;
+          Haptics.selectionAsync();
+          onSetExpanded(newExpanded);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        isDraggingRef.current = false;
+        const finalHeight = startHeightRef.current - gestureState.dy;
+        const middlePoint = (MAX_HEIGHT + MIN_HEIGHT) / 2;
+
+        const isFlickDown = gestureState.vy > 0.5;
+        const isFlickUp = gestureState.vy < -0.5;
+
+        let shouldBeExpanded = localExpandedRef.current;
+        if (isFlickUp) {
+          shouldBeExpanded = true;
+        } else if (isFlickDown) {
+          shouldBeExpanded = false;
+        } else {
+          shouldBeExpanded = finalHeight > middlePoint;
+        }
+
+        if (!shouldBeExpanded) {
+          Keyboard.dismiss();
+        }
+        Haptics.selectionAsync();
+        onSetExpanded(shouldBeExpanded);
+
+        Animated.spring(animatedHeight, { 
+          toValue: shouldBeExpanded ? MAX_HEIGHT : MIN_HEIGHT, 
+          useNativeDriver: false, 
+          bounciness: 4 
+        }).start();
+      },
+      onPanResponderTerminate: (_, gestureState) => {
+        isDraggingRef.current = false;
+        const finalHeight = startHeightRef.current - gestureState.dy;
+        const middlePoint = (MAX_HEIGHT + MIN_HEIGHT) / 2;
+
+        const isFlickDown = gestureState.vy > 0.5;
+        const isFlickUp = gestureState.vy < -0.5;
+
+        let shouldBeExpanded = localExpandedRef.current;
+        if (isFlickUp) {
+          shouldBeExpanded = true;
+        } else if (isFlickDown) {
+          shouldBeExpanded = false;
+        } else {
+          shouldBeExpanded = finalHeight > middlePoint;
+        }
+
+        if (!shouldBeExpanded) {
+          Keyboard.dismiss();
+        }
+        Haptics.selectionAsync();
+        onSetExpanded(shouldBeExpanded);
+
+        Animated.spring(animatedHeight, { 
+          toValue: shouldBeExpanded ? MAX_HEIGHT : MIN_HEIGHT, 
+          useNativeDriver: false, 
+          bounciness: 4 
+        }).start();
+      }
+    })
+  ).current;
 
   const handleSelect = (type: LiquidType) => {
-    Haptics.selectionAsync(); // Tactile haptic feedback when changing drink type
+    Haptics.selectionAsync(); 
     onSelectType(type);
   };
 
   const handleToggle = () => {
-    Keyboard.dismiss(); // Closes soft keyboard instantly on console toggle
-    Haptics.selectionAsync(); // Tactile haptic feedback when toggling panel
-    onToggleExpand();
-  };
-
-  const handleTouchStart = (e: any) => {
-    touchStartY.current = e.nativeEvent.pageY;
-  };
-
-  const handleTouchEnd = (e: any) => {
-    const touchEndY = e.nativeEvent.pageY;
-    const dy = touchEndY - touchStartY.current;
-
-    // Detect swipe gestures on handle
-    if (dy > 30) {
-      if (isExpanded) {
-        Keyboard.dismiss();
-        Haptics.selectionAsync();
-        onToggleExpand(); // Close
-      }
-    } else if (dy < -30) {
-      if (!isExpanded) {
-        Haptics.selectionAsync();
-        onToggleExpand(); // Open
-      }
-    }
+    Keyboard.dismiss(); 
+    Haptics.selectionAsync(); 
+    onSetExpanded(!isExpanded);
   };
 
   return (
-    <View style={styles.container}>
-      {/* Markdown Obsidian Divider / Pane Collapser (Tap + Swipe Gestures) */}
-      <View onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <Animated.View style={[styles.container, { height: animatedHeight }]}>
+      {/* iOS style Drag Handle */}
+      <View {...panResponder.panHandlers} style={styles.handleContainer}>
         <TouchableOpacity 
-          style={styles.collapseHandle} 
+          style={styles.handleArea} 
           onPress={handleToggle}
           activeOpacity={0.7}
         >
-          <Text style={styles.collapseHandleText}>
-            {isExpanded ? '--- swipe-down-to-collapse ---' : '--- swipe-up-to-expand ---'}
-          </Text>
-          {isExpanded ? (
-            <ChevronDown size={12} color={theme.colors.accent} />
-          ) : (
-            <ChevronUp size={12} color={theme.colors.accent} />
-          )}
+          <View style={styles.dragHandle} />
+          <Text style={styles.handleText}>{isExpanded ? 'Swipe down to collapse' : 'Swipe up to expand'}</Text>
         </TouchableOpacity>
       </View>
 
-      {isExpanded && (
-        <ScrollView 
-          style={styles.consoleScrollBody} 
-          contentContainerStyle={styles.consoleBody}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          scrollEnabled={true}
-        >
-          <Text style={styles.sectionTitle}># select-liquid-type</Text>
-          
-          {/* Beverage Tag Grid */}
-          <View style={styles.grid}>
-            {(Object.keys(LIQUID_CONFIGS) as LiquidType[]).map((type) => {
-              const config = LIQUID_CONFIGS[type];
-              const isSelected = selectedType === type;
+      <ScrollView 
+        style={styles.consoleScrollBody} 
+        contentContainerStyle={styles.consoleBody}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={true}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.sectionTitle}>Beverage</Text>
+        
+        {/* Beverage Grid */}
+        <View style={styles.grid}>
+          {(Object.keys(LIQUID_CONFIGS) as LiquidType[]).map((type) => {
+            const config = LIQUID_CONFIGS[type];
+            const isSelected = selectedType === type;
+            
+            return (
+              <TouchableOpacity
+                key={type}
+                activeOpacity={0.7}
+                style={[
+                  styles.card,
+                  isSelected && styles.cardActive,
+                  isSelected && { borderColor: config.color, backgroundColor: config.color + '10' }
+                ]}
+                onPress={() => handleSelect(type)}
+              >
+                <View style={styles.cardHeader}>
+                  <View style={[styles.colorDot, { backgroundColor: config.color }]} />
+                  <Text style={styles.cardMultiplier}>{config.multiplier}x</Text>
+                </View>
+                <Text style={styles.cardLabel}>{config.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.sectionTitle}>Quick Log</Text>
+        <View style={styles.sizeRow}>
+          {(() => {
+            const config = LIQUID_CONFIGS[selectedType];
+            return config.presets.map((size) => {
+              const effectiveSize = Math.round(size * config.multiplier);
+              const isStandard = size === config.standardPreset;
               
               return (
                 <TouchableOpacity
-                  key={type}
+                  key={size}
                   activeOpacity={0.7}
                   style={[
-                    styles.card,
-                    isSelected && styles.cardActive,
-                    isSelected && { borderColor: config.color }
+                    styles.sizeBtn,
+                    isStandard && {
+                      backgroundColor: config.color,
+                      borderColor: config.color,
+                    }
                   ]}
-                  onPress={() => handleSelect(type)}
+                  onPress={() => onQuickLog(size)}
                 >
-                  <View style={styles.cardHeader}>
-                    <Text style={[styles.cardTag, { color: config.color }]}>{config.tag}</Text>
-                    <Text style={styles.cardMultiplier}>{config.multiplier}x</Text>
-                  </View>
-                  <Text style={styles.cardLabel}>{config.label}</Text>
+                  <Text style={[
+                    styles.sizeText,
+                    isStandard && { color: '#ffffff', fontWeight: 'bold' }
+                  ]}>{size}ml</Text>
+                  <Text style={[
+                    styles.effectiveText,
+                    isStandard && { color: 'rgba(255,255,255,0.8)' }
+                  ]}>{effectiveSize}ml net</Text>
                 </TouchableOpacity>
               );
-            })}
-          </View>
-
-          {/* Preset Volume loggers */}
-          <Text style={styles.sectionTitle}># container-preset</Text>
-          <View style={styles.sizeRow}>
-            {(() => {
-              const config = LIQUID_CONFIGS[selectedType];
-              return config.presets.map((size) => {
-                const effectiveSize = Math.round(size * config.multiplier);
-                const isStandard = size === config.standardPreset;
-                
-                return (
-                  <TouchableOpacity
-                    key={size}
-                    activeOpacity={0.7}
-                    style={[
-                      styles.sizeBtn,
-                      isStandard && {
-                        borderColor: config.color,
-                        backgroundColor: config.color + '15',
-                        borderWidth: 1.5
-                      }
-                    ]}
-                    onPress={() => onQuickLog(size)}
-                  >
-                    <Text style={[
-                      styles.sizeText,
-                      isStandard && { color: config.color, fontWeight: 'bold' }
-                    ]}>{size}ml</Text>
-                    <Text style={[
-                      styles.effectiveText,
-                      isStandard && { color: config.color, opacity: 0.8 }
-                    ]}>({effectiveSize}ml net)</Text>
-                  </TouchableOpacity>
-                );
-              });
-            })()}
-          </View>
-        </ScrollView>
-      )}
-    </View>
+            });
+          })()}
+        </View>
+      </ScrollView>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: theme.spacing.sm, // reduced padding to widen the selection window
-    marginVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md, 
+    marginVertical: 0,
+    overflow: 'hidden',
   },
-  collapseHandle: {
-    flexDirection: 'row',
+  handleContainer: {
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    backgroundColor: '#050505',
-    borderWidth: 1,
-    borderColor: theme.colors.borderMuted,
-    borderRadius: theme.borderRadius.sm,
-    marginBottom: theme.spacing.xs,
+    paddingBottom: 4,
   },
-  collapseHandleText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 10,
+  handleArea: {
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 8,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: theme.colors.border,
+    borderRadius: 2,
+    marginBottom: 8,
+  },
+  handleText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
     color: theme.colors.textMuted,
-    letterSpacing: 0.5,
   },
   consoleScrollBody: {
-    maxHeight: 230, // Restrain the expanded height so it remains compact and scrollable
+    flex: 1,
   },
   consoleBody: {
-    marginTop: theme.spacing.xs,
-    paddingBottom: theme.spacing.md,
+    paddingBottom: theme.spacing.xl,
   },
   sectionTitle: {
-    fontFamily: theme.typography.mono,
-    fontSize: 11,
-    color: theme.colors.textMuted,
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
+    fontWeight: theme.typography.weight.semibold,
+    color: theme.colors.text,
     marginBottom: theme.spacing.sm,
+    marginTop: 4,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
+    gap: 12,
+    marginBottom: theme.spacing.lg,
   },
   card: {
     flex: 1,
     minWidth: '45%',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
+    borderColor: 'transparent',
+    borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
   },
   cardActive: {
-    backgroundColor: '#0a0a0a',
-    borderWidth: 1.5,
+    borderColor: theme.colors.accent,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  cardTag: {
-    fontFamily: theme.typography.mono,
-    fontSize: 12,
-    fontWeight: theme.typography.weight.semibold,
+  colorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
   cardMultiplier: {
-    fontFamily: theme.typography.mono,
-    fontSize: 10,
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
     color: theme.colors.textMuted,
-    backgroundColor: '#161616',
-    paddingHorizontal: 5,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 3,
+    borderRadius: 8,
   },
   cardLabel: {
-    fontSize: 14,
+    fontFamily: theme.typography.sans,
+    fontSize: 16,
     color: theme.colors.text,
     fontWeight: theme.typography.weight.medium,
   },
   sizeRow: {
     flexDirection: 'row',
-    gap: theme.spacing.sm,
+    gap: 10,
   },
   sizeBtn: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
-    paddingVertical: 12,
+    borderColor: 'transparent',
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sizeText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 13,
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
     color: theme.colors.text,
     fontWeight: theme.typography.weight.semibold,
   },
   effectiveText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 9,
+    fontFamily: theme.typography.sans,
+    fontSize: 11,
     color: theme.colors.textMuted,
-    marginTop: 2,
+    marginTop: 4,
   },
 });

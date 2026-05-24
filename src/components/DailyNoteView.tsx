@@ -1,8 +1,8 @@
 import React from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
-import { Trash2 } from 'lucide-react-native';
+import { Trash2, CheckCircle2, Circle } from 'lucide-react-native';
 import { theme } from '../theme';
-import { DrinkLog, DayProgress, LiquidType, LIQUID_CONFIGS } from '../types';
+import { DayProgress, LIQUID_CONFIGS } from '../types';
 
 interface DailyNoteViewProps {
   progress: DayProgress;
@@ -10,15 +10,13 @@ interface DailyNoteViewProps {
 }
 
 export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewProps) {
-  // Format long date string for daily note header
   const getFormattedDateHeader = (dateStr: string) => {
     if (!dateStr) return '';
     const [year, month, day] = dateStr.split('-');
     const dateObj = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
     return dateObj.toLocaleDateString('en-US', {
       weekday: 'long',
-      year: 'numeric',
-      month: 'long',
+      month: 'short',
       day: 'numeric',
     });
   };
@@ -27,6 +25,8 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
     ? Math.round((progress.totalEffective / progress.goal) * 100) 
     : 0;
 
+  const isCompleted = percentage >= 100;
+
   return (
     <ScrollView 
       style={styles.container} 
@@ -34,41 +34,35 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
       keyboardDismissMode="on-drag"
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.markdownHeader}># {getFormattedDateHeader(progress.date)}</Text>
-      
-      {/* Frontmatter metrics representation */}
-      <View style={styles.metricsBox}>
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletSymbol}>-</Text>
-          <Text style={styles.bulletText}>
-            💧 **Total Effective**: <Text style={styles.bulletHighlight}>{progress.totalEffective}ml</Text> / {progress.goal}ml ({percentage}%)
-          </Text>
-        </View>
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletSymbol}>-</Text>
-          <Text style={styles.bulletText}>
-            ⚖️ **Raw Consumption**: <Text style={styles.bulletHighlightMuted}>{progress.totalAmount}ml</Text>
-          </Text>
-        </View>
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletSymbol}>-</Text>
-          <Text style={styles.bulletText}>
-            📊 **Progress state**: <Text style={[
-              styles.stateTag,
-              percentage >= 100 ? styles.stateSuccess : styles.statePending
-            ]}>
-              {percentage >= 100 ? '#completed' : '#in-progress'}
-            </Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.dateHeader}>{getFormattedDateHeader(progress.date)}</Text>
+        <View style={[styles.badge, isCompleted ? styles.badgeSuccess : styles.badgePending]}>
+          <Text style={[styles.badgeText, isCompleted ? styles.badgeTextSuccess : styles.badgeTextPending]}>
+            {isCompleted ? 'Completed' : `${percentage}%`}
           </Text>
         </View>
       </View>
+      
+      {/* Metrics representation */}
+      <View style={styles.metricsBox}>
+        <View style={styles.metricItem}>
+          <Text style={styles.metricLabel}>Effective Intake</Text>
+          <Text style={styles.metricValue}>
+            <Text style={styles.metricHighlight}>{progress.totalEffective}ml</Text> / {progress.goal}ml
+          </Text>
+        </View>
+        <View style={styles.metricDivider} />
+        <View style={styles.metricItem}>
+          <Text style={styles.metricLabel}>Raw Fluid</Text>
+          <Text style={styles.metricValue}>{progress.totalAmount}ml</Text>
+        </View>
+      </View>
 
-      <Text style={styles.markdownSubHeader}>## Logged Items</Text>
+      <Text style={styles.subHeader}>Timeline</Text>
 
       {progress.logs.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>*No drinks logged for today yet.*</Text>
-          <Text style={styles.emptyHelp}>Add water using the buttons or console below.</Text>
+          <Text style={styles.emptyText}>No fluids logged today.</Text>
         </View>
       ) : (
         <View style={styles.logsList}>
@@ -76,36 +70,27 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
             const timeStr = new Date(log.timestamp).toLocaleTimeString([], { 
               hour: '2-digit', 
               minute: '2-digit',
-              hour12: false 
+              hour12: true 
             });
 
-            // Retrieve the liquid config by tag or type, fallback to water
             const config = Object.values(LIQUID_CONFIGS).find(c => c.tag === log.tag) || LIQUID_CONFIGS['water'];
 
             return (
-              <View 
-                key={log.id} 
-                style={[
-                  styles.logRow, 
-                  { borderLeftWidth: 3, borderLeftColor: config.color }
-                ]}
-              >
-                <View style={styles.checkboxContainer}>
-                  <View style={[
-                    styles.checkboxChecked, 
-                    { borderColor: config.color, backgroundColor: config.color + '1a' }
-                  ]}>
-                    <Text style={[styles.checkboxX, { color: config.color }]}>x</Text>
-                  </View>
+              <View key={log.id} style={styles.logRow}>
+                <View style={styles.timelineGraphic}>
+                  <View style={[styles.timelineDot, { backgroundColor: config.color }]} />
+                  <View style={styles.timelineLine} />
                 </View>
 
                 <View style={styles.logDetails}>
-                  <Text style={styles.logTime}>{timeStr}</Text>
-                  <Text style={styles.logContent}>
-                     Logged {log.amount}ml of {log.type}
-                  </Text>
+                  <View style={styles.logHeader}>
+                    <Text style={styles.logContent}>
+                      {log.amount}ml {config.label}
+                    </Text>
+                    <Text style={styles.logTime}>{timeStr}</Text>
+                  </View>
                   <View style={styles.tagBadgeRow}>
-                    <Text style={[styles.logTag, { color: config.color }]}>{log.tag}</Text>
+                    <Text style={[styles.logTag, { color: config.color }]}>{config.label}</Text>
                     {log.effectiveAmount !== log.amount && (
                       <Text style={styles.multiplierHint}>
                          ({Number(log.effectiveAmount.toFixed(1))}ml net)
@@ -119,7 +104,7 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
                   onPress={() => onDeleteLog(log.id)}
                   activeOpacity={0.7}
                 >
-                  <Trash2 size={13} color={theme.colors.accentRed} />
+                  <Trash2 size={16} color={theme.colors.textMuted} />
                 </TouchableOpacity>
               </View>
             );
@@ -139,136 +124,139 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
     paddingBottom: 160,
   },
-  markdownHeader: {
-    fontFamily: theme.typography.mono,
-    fontSize: 18,
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  dateHeader: {
+    fontFamily: theme.typography.sans,
+    fontSize: 22,
     fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
-    marginBottom: theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    paddingBottom: 6,
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  badgeSuccess: {
+    backgroundColor: 'rgba(50, 215, 75, 0.15)',
+  },
+  badgePending: {
+    backgroundColor: theme.colors.surfaceElevated,
+  },
+  badgeText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    fontWeight: theme.typography.weight.semibold,
+  },
+  badgeTextSuccess: {
+    color: theme.colors.accentGreen,
+  },
+  badgeTextPending: {
+    color: theme.colors.textMuted,
   },
   metricsBox: {
-    backgroundColor: '#050505',
-    borderLeftWidth: 3,
-    borderLeftColor: theme.colors.border,
-    paddingVertical: theme.spacing.sm,
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.lg,
-    gap: 6,
   },
-  bulletRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+  metricItem: {
+    flex: 1,
   },
-  bulletSymbol: {
-    fontFamily: theme.typography.mono,
-    color: theme.colors.accent,
-    fontSize: 13,
+  metricDivider: {
+    width: 1,
+    backgroundColor: theme.colors.border,
+    marginHorizontal: theme.spacing.md,
   },
-  bulletText: {
-    fontFamily: theme.typography.mono,
+  metricLabel: {
+    fontFamily: theme.typography.sans,
     fontSize: 12,
     color: theme.colors.textMuted,
-    lineHeight: 18,
+    marginBottom: 4,
   },
-  bulletHighlight: {
-    color: theme.colors.accentAmber,
-    fontWeight: theme.typography.weight.bold,
-  },
-  bulletHighlightMuted: {
+  metricValue: {
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
     color: theme.colors.text,
+    fontWeight: theme.typography.weight.medium,
   },
-  stateTag: {
-    fontFamily: theme.typography.mono,
-    fontSize: 11,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  statePending: {
-    color: theme.colors.accentAmber,
-    backgroundColor: theme.colors.accentAmberFade,
-  },
-  stateSuccess: {
-    color: theme.colors.accentGreen,
-    backgroundColor: 'rgba(78, 166, 78, 0.15)',
-  },
-  markdownSubHeader: {
-    fontFamily: theme.typography.mono,
-    fontSize: 14,
+  metricHighlight: {
+    color: theme.colors.text,
     fontWeight: theme.typography.weight.bold,
+  },
+  subHeader: {
+    fontFamily: theme.typography.sans,
+    fontSize: 17,
+    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginBottom: theme.spacing.md,
-    marginTop: theme.spacing.xs,
   },
   emptyContainer: {
     paddingVertical: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.md,
   },
   emptyText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 12,
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
     color: theme.colors.textMuted,
-    fontStyle: 'italic',
-    marginBottom: 4,
-  },
-  emptyHelp: {
-    fontSize: 11,
-    color: theme.colors.textSubtle,
   },
   logsList: {
-    gap: theme.spacing.sm,
+    gap: 0,
   },
   logRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.borderMuted,
-    borderRadius: theme.borderRadius.sm,
-    padding: theme.spacing.sm,
-    gap: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
   },
-  checkboxContainer: {
+  timelineGraphic: {
+    width: 20,
     alignItems: 'center',
-    justifyContent: 'center',
+    marginRight: 12,
+    alignSelf: 'stretch',
   },
-  checkboxChecked: {
-    width: 16,
-    height: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.accent,
-    borderRadius: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.accentFade,
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 6,
   },
-  checkboxX: {
-    fontFamily: theme.typography.mono,
-    fontSize: 10,
-    color: theme.colors.accent,
-    lineHeight: 12,
-    fontWeight: theme.typography.weight.bold,
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: theme.colors.border,
+    marginTop: 4,
+    marginBottom: -16, // Connect to next item
   },
   logDetails: {
     flex: 1,
-    gap: 2,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    padding: 12,
+    marginRight: 8,
+  },
+  logHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   logTime: {
-    fontFamily: theme.typography.mono,
-    fontSize: 10,
-    color: theme.colors.textSubtle,
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textMuted,
   },
   logContent: {
-    fontSize: 13,
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
     color: theme.colors.text,
     fontWeight: theme.typography.weight.medium,
   },
@@ -278,18 +266,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   logTag: {
-    fontFamily: theme.typography.mono,
-    fontSize: 10,
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    fontWeight: theme.typography.weight.medium,
   },
   multiplierHint: {
-    fontFamily: theme.typography.mono,
-    fontSize: 9,
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
     color: theme.colors.textMuted,
   },
   deleteBtn: {
     padding: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

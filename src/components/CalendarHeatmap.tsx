@@ -14,15 +14,12 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
   const [activeTab, setActiveTab] = useState<'grid' | 'trend'>('grid');
   const progressMap = getAggregatedProgress(logs, settings);
   
-  // Calculate grid of the last 9 weeks (63 days) ending today
   const today = new Date();
-  const dayOfWeek = today.getDay(); // 0 is Sunday, 6 is Saturday
+  const dayOfWeek = today.getDay(); 
   
-  // Adjust starting point to be 9 weeks ago, aligned to Sunday
   const totalDays = 63;
   const days: { dateKey: string; dateObj: Date; level: 0 | 1 | 2 | 3; percent: number }[] = [];
-  
-  const startOffset = totalDays - 1 - (6 - dayOfWeek); // align grid to end on Saturday
+  const startOffset = totalDays - 1 - (6 - dayOfWeek); 
   
   for (let i = startOffset; i >= 0; i--) {
     const d = new Date();
@@ -41,15 +38,9 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
       else level = 3;
     }
     
-    days.push({
-      dateKey,
-      dateObj: d,
-      level,
-      percent,
-    });
+    days.push({ dateKey, dateObj: d, level, percent });
   }
 
-  // Calculate the last 7 days for the Weekly Trend Chart
   const last7Days: { weekday: string; totalEffective: number; goal: number; percent: number }[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
@@ -68,22 +59,14 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
       : 0;
     
     const weekdayStr = d.toLocaleDateString('en-US', { weekday: 'short' });
-    
-    last7Days.push({
-      weekday: weekdayStr,
-      totalEffective: progress.totalEffective,
-      goal: progress.goal,
-      percent
-    });
+    last7Days.push({ weekday: weekdayStr, totalEffective: progress.totalEffective, goal: progress.goal, percent });
   }
 
-  // Calculate stats: streaks & consistency
   let currentStreak = 0;
   let maxStreak = 0;
   let compliantDays = 0;
   let activeDays = 0;
   
-  // Sort keys to compute streak sequentially
   const dateKeys = Object.keys(progressMap).sort();
   let tempStreak = 0;
   
@@ -102,13 +85,11 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
     }
   }
   
-  // Check if today is compliant to set current streak
   const todayKey = formatDateKey(Date.now());
   const todayProg = progressMap[todayKey];
   if (todayProg && Math.round((todayProg.totalEffective / todayProg.goal) * 100) >= 100) {
-    currentStreak = tempStreak; // Set current streak from calculated chain
+    currentStreak = tempStreak; 
   } else {
-    // If today is not compliant yet, current streak might be yesterday's streak
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);
     const yesterdayKey = formatDateKey(yesterday.getTime());
@@ -118,70 +99,63 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
     }
   }
 
-  // Group days into weeks (9 columns of 7 days)
   const columns: typeof days[] = [];
   for (let i = 0; i < days.length; i += 7) {
     columns.push(days.slice(i, i + 7));
   }
 
-  // Row labels for days
-  const rowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const rowLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.markdownHeader}># {activeTab === 'grid' ? 'tracker-heatmap.md' : 'weekly-trends.md'}</Text>
+      <Text style={styles.header}>History & Trends</Text>
       
-      {/* Obsidian Tab Switcher Segment Control */}
+      {/* iOS Segment Control */}
       <View style={styles.tabContainer}>
         <TouchableOpacity 
           style={[styles.tabBtn, activeTab === 'grid' && styles.tabBtnActive]} 
           onPress={() => { Haptics.selectionAsync(); setActiveTab('grid'); }}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Text style={[styles.tabBtnText, activeTab === 'grid' && styles.tabBtnTextActive]}>[Grid View]</Text>
+          <Text style={[styles.tabBtnText, activeTab === 'grid' && styles.tabBtnTextActive]}>63-Day Grid</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tabBtn, activeTab === 'trend' && styles.tabBtnActive]} 
           onPress={() => { Haptics.selectionAsync(); setActiveTab('trend'); }}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Text style={[styles.tabBtnText, activeTab === 'trend' && styles.tabBtnTextActive]}>[Weekly Trend]</Text>
+          <Text style={[styles.tabBtnText, activeTab === 'trend' && styles.tabBtnTextActive]}>7-Day Trend</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Calendar Grid Container */}
       <View style={styles.heatmapCard}>
         {activeTab === 'grid' ? (
           <>
-            <Text style={styles.cardHeader}>## 63-day-activity-grid</Text>
-            
             <View style={styles.gridWrapper}>
-              {/* Weekday Row Labels */}
               <View style={styles.labelsColumn}>
                 {rowLabels.map((label, idx) => (
-                  <Text key={label} style={[styles.rowLabel, (idx % 2 !== 0) && { opacity: 0.4 }]}>
-                    {label.substring(0, 1)}
+                  <Text key={idx} style={[styles.rowLabel, (idx % 2 !== 0) && { opacity: 0.5 }]}>
+                    {label}
                   </Text>
                 ))}
               </View>
               
-              {/* Columns */}
               <View style={styles.gridColumnsContainer}>
                 {columns.map((week, colIdx) => (
                   <View key={colIdx} style={styles.gridColumn}>
                     {week.map((day, rowIdx) => {
-                      let cellBg = '#121212';
-                      let borderCol = '#222222';
+                      let cellBg = theme.colors.surface;
+                      let opacity = 1;
                       
                       if (day.level === 1) {
-                        cellBg = 'rgba(117, 78, 195, 0.25)';
-                        borderCol = 'rgba(117, 78, 195, 0.4)';
+                        cellBg = theme.colors.accent;
+                        opacity = 0.3;
                       } else if (day.level === 2) {
-                        cellBg = 'rgba(117, 78, 195, 0.6)';
-                        borderCol = 'rgba(117, 78, 195, 0.8)';
+                        cellBg = theme.colors.accent;
+                        opacity = 0.6;
                       } else if (day.level === 3) {
-                        cellBg = theme.colors.accent; // Full Obsidian Purple
-                        borderCol = theme.colors.accent;
+                        cellBg = theme.colors.accent;
+                        opacity = 1;
                       }
 
                       return (
@@ -189,7 +163,7 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
                           key={day.dateKey}
                           style={[
                             styles.cell, 
-                            { backgroundColor: cellBg, borderColor: borderCol },
+                            { backgroundColor: cellBg, opacity },
                             day.dateKey === todayKey && styles.todayCell
                           ]}
                         />
@@ -200,22 +174,18 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
               </View>
             </View>
 
-            {/* Legend */}
             <View style={styles.legendRow}>
               <Text style={styles.legendText}>Less</Text>
-              <View style={[styles.legendCell, { backgroundColor: '#121212', borderColor: '#222' }]} />
-              <View style={[styles.legendCell, { backgroundColor: 'rgba(117, 78, 195, 0.25)', borderColor: 'rgba(117, 78, 195, 0.4)' }]} />
-              <View style={[styles.legendCell, { backgroundColor: 'rgba(117, 78, 195, 0.6)', borderColor: 'rgba(117, 78, 195, 0.8)' }]} />
-              <View style={[styles.legendCell, { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent }]} />
-              <Text style={styles.legendText}>More (100%+)</Text>
+              <View style={[styles.legendCell, { backgroundColor: theme.colors.surface }]} />
+              <View style={[styles.legendCell, { backgroundColor: theme.colors.accent, opacity: 0.3 }]} />
+              <View style={[styles.legendCell, { backgroundColor: theme.colors.accent, opacity: 0.6 }]} />
+              <View style={[styles.legendCell, { backgroundColor: theme.colors.accent, opacity: 1 }]} />
+              <Text style={styles.legendText}>More</Text>
             </View>
           </>
         ) : (
           <View style={styles.chartWrapper}>
-            <Text style={styles.cardHeader}>## 7-day-hydration-progress</Text>
-            
             <View style={styles.chartArea}>
-              {/* Row of 7 Bars */}
               <View style={styles.barsContainer}>
                 {last7Days.map((day, idx) => {
                   const maxPercent = 120;
@@ -224,65 +194,60 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
                   
                   return (
                     <View key={idx} style={styles.barColumn}>
-                      {/* Volume Label above the bar */}
                       <Text style={[styles.barValText, isCompliant && { color: theme.colors.accent, fontWeight: 'bold' }]}>
-                        {day.totalEffective > 0 ? `${(day.totalEffective / 1000).toFixed(1)}L` : '0L'}
+                        {day.totalEffective > 0 ? `${(day.totalEffective / 1000).toFixed(1)}L` : '0'}
                       </Text>
                       
-                      {/* The actual Bar */}
                       <View style={styles.barSlot}>
                         <View 
                           style={[
                             styles.barFill, 
                             { height: barHeight },
                             isCompliant 
-                              ? { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent } 
-                              : { backgroundColor: 'rgba(117, 78, 195, 0.15)', borderColor: theme.colors.border }
+                              ? { backgroundColor: theme.colors.accent } 
+                              : { backgroundColor: theme.colors.border }
                           ]} 
                         />
                       </View>
                       
-                      {/* Day initials Label at the bottom */}
                       <Text style={styles.barDayText}>{day.weekday}</Text>
                     </View>
                   );
                 })}
               </View>
 
-              {/* Dashed Target Goal Line (Absolute Position at 100% height, overlaying bars) */}
               <View style={styles.goalLine} />
               <View style={styles.goalLabelContainer}>
-                <Text style={styles.goalLabelText}>[GOAL TARGET]</Text>
+                <Text style={styles.goalLabelText}>GOAL</Text>
               </View>
             </View>
           </View>
         )}
       </View>
 
-      {/* Streak Dashboard */}
-      <Text style={styles.markdownSubHeader}>## tracker-insights</Text>
+      <Text style={styles.subHeader}>Insights</Text>
       
       <View style={styles.statsList}>
         <View style={styles.statRow}>
-          <Text style={styles.statKey}>current_streak: </Text>
-          <Text style={styles.statValue}>{currentStreak} days 🔥</Text>
+          <Text style={styles.statKey}>Current Streak</Text>
+          <Text style={styles.statValue}>{currentStreak} Days 🔥</Text>
         </View>
-        
+        <View style={styles.divider} />
         <View style={styles.statRow}>
-          <Text style={styles.statKey}>longest_streak: </Text>
-          <Text style={styles.statValue}>{maxStreak} days 👑</Text>
+          <Text style={styles.statKey}>Longest Streak</Text>
+          <Text style={styles.statValue}>{maxStreak} Days 👑</Text>
         </View>
-
+        <View style={styles.divider} />
         <View style={styles.statRow}>
-          <Text style={styles.statKey}>compliant_days: </Text>
+          <Text style={styles.statKey}>Goal Hit Rate</Text>
           <Text style={styles.statValue}>
-            {compliantDays} / {activeDays || 1} ({activeDays > 0 ? Math.round((compliantDays / activeDays) * 100) : 0}%)
+            {activeDays > 0 ? Math.round((compliantDays / activeDays) * 100) : 0}%
           </Text>
         </View>
-
+        <View style={styles.divider} />
         <View style={styles.statRow}>
-          <Text style={styles.statKey}>tracked_logfiles: </Text>
-          <Text style={styles.statValue}>{Object.keys(progressMap).filter(k => progressMap[k].logs.length > 0).length} notes</Text>
+          <Text style={styles.statKey}>Tracked Days</Text>
+          <Text style={styles.statValue}>{Object.keys(progressMap).filter(k => progressMap[k].logs.length > 0).length}</Text>
         </View>
       </View>
     </ScrollView>
@@ -298,142 +263,135 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
     paddingBottom: 40,
   },
-  markdownHeader: {
-    fontFamily: theme.typography.mono,
-    fontSize: 18,
+  header: {
+    fontFamily: theme.typography.sans,
+    fontSize: 22,
     fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
     marginBottom: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    paddingBottom: 6,
   },
-  markdownSubHeader: {
-    fontFamily: theme.typography.mono,
-    fontSize: 14,
-    fontWeight: theme.typography.weight.bold,
+  subHeader: {
+    fontFamily: theme.typography.sans,
+    fontSize: 17,
+    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
-    marginVertical: theme.spacing.md,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
   },
   heatmapCard: {
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
-    padding: theme.spacing.md,
-  },
-  cardHeader: {
-    fontFamily: theme.typography.mono,
-    fontSize: 12,
-    color: theme.colors.text,
-    marginBottom: theme.spacing.md,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.lg,
   },
   gridWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
     justifyContent: 'center',
   },
   labelsColumn: {
     justifyContent: 'space-between',
-    height: 124,
+    height: 140,
     paddingVertical: 2,
   },
   rowLabel: {
-    fontFamily: theme.typography.mono,
-    fontSize: 8,
+    fontFamily: theme.typography.sans,
+    fontSize: 10,
     color: theme.colors.textMuted,
     textAlign: 'center',
-    width: 12,
+    width: 14,
   },
   gridColumnsContainer: {
     flexDirection: 'row',
-    gap: 4,
+    gap: 6,
   },
   gridColumn: {
-    gap: 4,
+    gap: 6,
   },
   cell: {
-    width: 14,
-    height: 14,
-    borderRadius: 2,
-    borderWidth: 1,
+    width: 15,
+    height: 15,
+    borderRadius: 4,
   },
   todayCell: {
     borderWidth: 1.5,
-    borderColor: theme.colors.accentAmber,
+    borderColor: '#ffffff',
   },
   legendRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    marginTop: theme.spacing.md,
-    gap: 4,
+    marginTop: 20,
+    gap: 6,
   },
   legendText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 9,
+    fontFamily: theme.typography.sans,
+    fontSize: 11,
     color: theme.colors.textMuted,
     marginHorizontal: 4,
   },
   legendCell: {
-    width: 10,
-    height: 10,
-    borderRadius: 1,
-    borderWidth: 1,
+    width: 12,
+    height: 12,
+    borderRadius: 3,
   },
   statsList: {
-    backgroundColor: '#050505',
-    borderWidth: 1,
-    borderColor: theme.colors.borderMuted,
-    borderRadius: theme.borderRadius.sm,
-    padding: theme.spacing.md,
-    gap: 6,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing.md,
   },
   statRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    paddingVertical: 14,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.border,
   },
   statKey: {
-    fontFamily: theme.typography.mono,
-    color: theme.colors.accentAmber,
-    fontSize: 12,
+    fontFamily: theme.typography.sans,
+    color: theme.colors.textMuted,
+    fontSize: 15,
   },
   statValue: {
-    fontFamily: theme.typography.mono,
+    fontFamily: theme.typography.sans,
     color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: theme.typography.weight.bold,
+    fontSize: 15,
+    fontWeight: theme.typography.weight.semibold,
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#050505',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceElevated,
     borderRadius: theme.borderRadius.sm,
-    padding: 3,
-    marginBottom: theme.spacing.md,
+    padding: 2,
+    marginBottom: theme.spacing.lg,
   },
   tabBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 4,
+    borderRadius: theme.borderRadius.sm - 2,
   },
   tabBtnActive: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.text,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
   },
   tabBtnText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 11,
-    color: theme.colors.textMuted,
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    color: theme.colors.text,
+    fontWeight: theme.typography.weight.medium,
   },
   tabBtnTextActive: {
-    color: theme.colors.accentAmber,
-    fontWeight: theme.typography.weight.bold,
+    color: '#000000',
+    fontWeight: theme.typography.weight.semibold,
   },
   chartWrapper: {
     paddingVertical: theme.spacing.xs,
@@ -448,34 +406,33 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 30 + 130, // 30px is for bottom day label padding, 130px is the 100% height line
+    bottom: 30 + 130, 
     height: 1,
     borderWidth: 1,
-    borderColor: theme.colors.accentAmber,
+    borderColor: theme.colors.border,
     borderStyle: 'dashed',
-    opacity: 0.85,
     zIndex: 5,
   },
   goalLabelContainer: {
     position: 'absolute',
     left: 4,
     bottom: 30 + 130 + 4,
-    backgroundColor: '#121212',
-    paddingHorizontal: 4,
-    borderRadius: 2,
+    backgroundColor: theme.colors.surfaceElevated,
+    paddingHorizontal: 6,
+    borderRadius: 4,
     zIndex: 6,
   },
   goalLabelText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 7.5,
-    color: theme.colors.accentAmber,
-    fontWeight: 'bold',
+    fontFamily: theme.typography.sans,
+    fontSize: 10,
+    color: theme.colors.textMuted,
+    fontWeight: theme.typography.weight.bold,
   },
   barsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    height: 156 + 30 + 14, // height of bars + day label space + volume space
+    height: 156 + 30 + 14, 
     paddingHorizontal: 4,
   },
   barColumn: {
@@ -483,30 +440,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   barValText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 8,
-    color: theme.colors.textSubtle,
-    marginBottom: 4,
+    fontFamily: theme.typography.sans,
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginBottom: 6,
   },
   barSlot: {
     height: 156,
-    width: 24,
-    backgroundColor: '#050505',
-    borderWidth: 1,
-    borderColor: theme.colors.borderMuted,
-    borderRadius: 3,
+    width: 28,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 6,
     justifyContent: 'flex-end',
     overflow: 'hidden',
   },
   barFill: {
     width: '100%',
-    borderWidth: 1,
-    borderRadius: 2,
+    borderRadius: 6,
   },
   barDayText: {
-    fontFamily: theme.typography.mono,
-    fontSize: 9,
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
     color: theme.colors.textMuted,
-    marginTop: 8,
+    marginTop: 10,
   },
 });
