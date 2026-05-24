@@ -1,0 +1,56 @@
+name: Build Unsigned iOS IPA
+
+on:
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: macos-14 # macOS 14 runner includes latest Xcode versions
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Native iOS Directory (Expo Prebuild)
+        run: npx expo prebuild --platform ios --no-interactive
+
+      - name: Build iOS Application
+        run: |
+          cd ios
+          xcodebuild -workspace *.xcworkspace \
+            -scheme NEXUS \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            clean build
+
+      - name: Package App into Unsigned IPA
+        run: |
+          mkdir -p Payload
+          # Copy compiled .app bundle into the Payload folder
+          cp -r ios/build/Build/Products/Release-iphoneos/*.app Payload/
+          # Compress Payload folder into .ipa format
+          zip -r NEXUS.ipa Payload
+
+      - name: Upload Unsigned IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-ipa
+          path: NEXUS.ipa
+          retention-days: 7
