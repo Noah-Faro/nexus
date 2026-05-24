@@ -108,7 +108,7 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
                     <Text style={[styles.logTag, { color: config.color }]}>{log.tag}</Text>
                     {log.effectiveAmount !== log.amount && (
                       <Text style={styles.multiplierHint}>
-                         ({log.effectiveAmount}ml net)
+                         ({Number(log.effectiveAmount.toFixed(1))}ml net)
                       </Text>
                     )}
                   </View>

@@ -158,7 +158,7 @@ export default function GraphView({ progress }: GraphViewProps) {
       subLabel: log.type.toUpperCase(),
       tag: log.tag,
       amount: log.amount,
-      multiplier: Math.round((log.effectiveAmount / log.amount) * 1000) / 1000,
+      multiplier: config ? config.multiplier : 1.0,
       color,
       type: 'drink',
       baseAngle,

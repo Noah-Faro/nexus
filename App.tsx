@@ -111,7 +111,7 @@ export default function App() {
       amount,
       type: selectedType,
       tag: config.tag,
-      effectiveAmount: Math.round(amount * config.multiplier),
+      effectiveAmount: amount * config.multiplier,
     };
 
     const updatedLogs = [newLog, ...logs];
