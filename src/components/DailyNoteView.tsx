@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
 import { Trash2 } from 'lucide-react-native';
 import { theme } from '../theme';
-import { DrinkLog, DayProgress } from '../types';
+import { DrinkLog, DayProgress, LiquidType, LIQUID_CONFIGS } from '../types';
 
 interface DailyNoteViewProps {
   progress: DayProgress;
@@ -79,11 +79,23 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
               hour12: false 
             });
 
+            // Retrieve the liquid config by tag or type, fallback to water
+            const config = Object.values(LIQUID_CONFIGS).find(c => c.tag === log.tag) || LIQUID_CONFIGS['water'];
+
             return (
-              <View key={log.id} style={styles.logRow}>
+              <View 
+                key={log.id} 
+                style={[
+                  styles.logRow, 
+                  { borderLeftWidth: 3, borderLeftColor: config.color }
+                ]}
+              >
                 <View style={styles.checkboxContainer}>
-                  <View style={styles.checkboxChecked}>
-                    <Text style={styles.checkboxX}>x</Text>
+                  <View style={[
+                    styles.checkboxChecked, 
+                    { borderColor: config.color, backgroundColor: config.color + '1a' }
+                  ]}>
+                    <Text style={[styles.checkboxX, { color: config.color }]}>x</Text>
                   </View>
                 </View>
 
@@ -93,7 +105,7 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
                      Logged {log.amount}ml of {log.type}
                   </Text>
                   <View style={styles.tagBadgeRow}>
-                    <Text style={[styles.logTag, { color: theme.colors.accent }]}>{log.tag}</Text>
+                    <Text style={[styles.logTag, { color: config.color }]}>{log.tag}</Text>
                     {log.effectiveAmount !== log.amount && (
                       <Text style={styles.multiplierHint}>
                          ({log.effectiveAmount}ml net)

@@ -88,7 +88,7 @@ export default function CommandPalette({ selectedType, onLog, onCommand }: Comma
 
           {/* Minimalist slider button adjustments */}
           <View style={styles.dialRow}>
-            {[100, 250, 400, 500, 750, 1000].map((val) => (
+            {[100, 250, 400, 500, 650, 1000].map((val) => (
               <TouchableOpacity
                 key={val}
                 style={[styles.dialCell, sliderVal === val && styles.dialCellActive]}

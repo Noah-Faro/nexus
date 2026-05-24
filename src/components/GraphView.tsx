@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, Dimensions, TouchableOpacity, PanResponder } fr
 import Svg, { Line, Circle, Text as SvgText, G } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
-import { DrinkLog, DayProgress } from '../types';
+import { DrinkLog, DayProgress, LiquidType, LIQUID_CONFIGS } from '../types';
 
 interface GraphViewProps {
   progress: DayProgress;
@@ -147,28 +147,29 @@ export default function GraphView({ progress }: GraphViewProps) {
   drinkLogs.forEach((log, index) => {
     // Distribute angles evenly around the center node
     const baseAngle = (2 * Math.PI * index) / drinkLogs.length;
+    
+    // Resolve dynamic color from configurations
+    const config = Object.values(LIQUID_CONFIGS).find(c => c.tag === log.tag);
+    const color = config ? config.color : theme.colors.accent;
+
     nodes.push({
       id: log.id,
       label: `${log.amount}ml`,
       subLabel: log.type.toUpperCase(),
       tag: log.tag,
       amount: log.amount,
-      multiplier: log.effectiveAmount / log.amount,
-      color: getLiquidColor(log.tag),
+      multiplier: Math.round((log.effectiveAmount / log.amount) * 1000) / 1000,
+      color,
       type: 'drink',
       baseAngle,
       radius: 95 // distance from center node
     });
   });
 
-  function getLiquidColor(tag: string): string {
-    if (tag === '#water') return theme.colors.accent;
-    if (tag === '#coffee') return theme.colors.accentAmber;
-    if (tag === '#tea') return theme.colors.accentGreen;
-    if (tag === '#soda') return theme.colors.accentRed;
-    if (tag === '#juice') return '#d46b32'; // rust orange
-    return '#3490dc'; // blue for sports drink
-  }
+  // Calculate base node radius based on container volume (e.g. 150ml vs 1000ml)
+  const getBaseNodeRadius = (amount: number) => {
+    return Math.min(12, Math.max(4, 3 + (amount / 100)));
+  };
 
   // Calculate animated coordinates (Applies both Zoom and Pan Offsets)
   const getCoordinates = (node: NodeItem) => {
@@ -287,14 +288,18 @@ export default function GraphView({ progress }: GraphViewProps) {
               const coords = getCoordinates(node);
               const isSelected = selectedNode?.id === node.id;
               
+              // Calculate responsive node radius: volume base * zoom scale
+              const baseRad = getBaseNodeRadius(node.amount);
+              const nodeRad = baseRad * zoom * (isSelected ? 1.4 : 1.0);
+              
               return (
                 <G key={node.id} onPress={() => setSelectedNode(isSelected ? null : node)}>
-                  {/* Node outer glow on selection */}
+                  {/* Node outer glow on selection (scales with zoom) */}
                   {isSelected && (
                     <Circle
                       cx={coords.x}
                       cy={coords.y}
-                      r={18}
+                      r={nodeRad * 2}
                       fill={node.color}
                       opacity={0.25}
                     />
@@ -303,7 +308,7 @@ export default function GraphView({ progress }: GraphViewProps) {
                   <Circle
                     cx={coords.x}
                     cy={coords.y}
-                    r={isSelected ? 9 : 6}
+                    r={nodeRad}
                     fill={node.color}
                     stroke={theme.colors.background}
                     strokeWidth={1.5}
@@ -330,7 +335,7 @@ export default function GraphView({ progress }: GraphViewProps) {
                 <Circle
                   cx={centerCoords.x}
                   cy={centerCoords.y}
-                  r={24}
+                  r={20 * zoom * 1.5}
                   fill={theme.colors.accent}
                   opacity={0.15}
                 />
@@ -338,7 +343,7 @@ export default function GraphView({ progress }: GraphViewProps) {
               <Circle
                 cx={centerCoords.x}
                 cy={centerCoords.y}
-                r={12}
+                r={12 * zoom}
                 fill="#000000"
                 stroke={theme.colors.accent}
                 strokeWidth={2}
@@ -346,7 +351,7 @@ export default function GraphView({ progress }: GraphViewProps) {
               <Circle
                 cx={centerCoords.x}
                 cy={centerCoords.y}
-                r={4}
+                r={4 * zoom}
                 fill={theme.colors.accent}
               />
               <SvgText
@@ -389,12 +394,18 @@ export default function GraphView({ progress }: GraphViewProps) {
               <Text style={styles.yamlKey}>metadata_tags: </Text>
               <Text style={[styles.yamlVal, { color: selectedNode.color }]}>[{selectedNode.tag}]</Text>
             </View>
-            {selectedNode.type === 'drink' && (
-              <View style={styles.yamlRow}>
-                <Text style={styles.yamlKey}>hydration_ratio: </Text>
-                <Text style={styles.yamlVal}>{selectedNode.multiplier}x (effective: {Math.round(selectedNode.amount * selectedNode.multiplier)}ml)</Text>
-              </View>
-            )}
+            {selectedNode.type === 'drink' && (() => {
+              const eff = selectedNode.amount * selectedNode.multiplier;
+              const formattedEff = Number(eff.toFixed(1)); // Keeps 1 decimal only if fractional
+              return (
+                <View style={styles.yamlRow}>
+                  <Text style={styles.yamlKey}>hydration_ratio: </Text>
+                  <Text style={styles.yamlVal}>
+                    {Number(selectedNode.multiplier.toFixed(3))}x (effective: {formattedEff}ml)
+                  </Text>
+                </View>
+              );
+            })()}
           </View>
         ) : (
           <View style={styles.inspectorPlaceholder}>

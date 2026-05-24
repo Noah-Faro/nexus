@@ -15,13 +15,15 @@ export interface UserSettings {
   useAutoGoal: boolean;       // whether to calculate goals automatically based on weight
 }
 
-export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink';
+export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine';
 
 export interface LiquidConfig {
   tag: string;
   label: string;
   multiplier: number;
   color: string;
+  standardPreset: number;
+  presets: number[];
 }
 
 export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
@@ -29,37 +31,65 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     tag: '#water',
     label: 'Water',
     multiplier: 1.0,
-    color: '#754ec3', // Obsidian Purple
+    color: '#3490dc', // Royal Blue
+    standardPreset: 250,
+    presets: [250, 330, 500, 650]
   },
   'coffee': {
     tag: '#coffee',
     label: 'Coffee',
-    multiplier: 0.8,
-    color: '#e5b567', // Warm Amber
+    multiplier: 0.7,
+    color: '#855845', // Espresso Brown
+    standardPreset: 250,
+    presets: [40, 150, 250, 330] // Supports 40ml Espresso
   },
   'tea': {
     tag: '#tea',
     label: 'Tea',
-    multiplier: 0.9,
-    color: '#4ea64e', // Muted Sage Green
+    multiplier: 0.8,
+    color: '#4ea64e', // Sage Green
+    standardPreset: 250,
+    presets: [150, 250, 330, 500]
   },
   'soda': {
     tag: '#soda',
     label: 'Soda',
-    multiplier: 0.7,
-    color: '#e95656', // Crimson Red
+    multiplier: 0.4,
+    color: '#e95656', // Cola/Crimson Red
+    standardPreset: 330,
+    presets: [250, 330, 500, 650]
   },
   'juice': {
     tag: '#juice',
     label: 'Juice',
-    multiplier: 0.8,
+    multiplier: 0.5,
     color: '#d46b32', // Orange Rust
+    standardPreset: 250,
+    presets: [250, 330, 500, 650]
   },
   'sports-drink': {
     tag: '#sports-drink',
     label: 'Isotonic',
-    multiplier: 1.1,
-    color: '#3490dc', // Technical Blue
+    multiplier: 0.8,
+    color: '#754ec3', // Obsidian Purple
+    standardPreset: 500,
+    presets: [250, 330, 500, 650]
+  },
+  'beer': {
+    tag: '#beer',
+    label: 'Beer',
+    multiplier: 0.1,
+    color: '#e5b567', // Golden Yellow
+    standardPreset: 500,
+    presets: [330, 500, 650, 1000]
+  },
+  'wine': {
+    tag: '#wine',
+    label: 'Wine',
+    multiplier: -0.4, // Dehydrating
+    color: '#800020', // Burgundy
+    standardPreset: 150,
+    presets: [150, 250, 330, 500]
   }
 };
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, SafeAreaView, Alert, Platform, StatusBar, KeyboardAvoidingView, Keyboard } from 'react-native';
+import { StyleSheet, View, SafeAreaView, Alert, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 
@@ -25,6 +25,7 @@ import CalendarHeatmap from './src/components/CalendarHeatmap';
 import SettingsModal from './src/components/SettingsModal';
 import GoalModal from './src/components/GoalModal';
 import ConsoleHelpModal from './src/components/ConsoleHelpModal';
+import AppAlertModal, { AppAlertButton } from './src/components/AppAlertModal';
 
 export default function App() {
   const [activeView, setActiveView] = useState<'tracker' | 'stats' | 'calendar'>('tracker');
@@ -36,11 +37,37 @@ export default function App() {
   const [goalModalVisible, setGoalModalVisible] = useState(false); // Custom celebration modal
   const [helpModalVisible, setHelpModalVisible] = useState(false); // Custom console help modal
 
+  // State for reusable custom app alerts
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: AppAlertButton[];
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: []
+  });
+
+  const triggerAlert = (title: string, message: string, buttons?: AppAlertButton[]) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }]
+    });
+  };
+
   // Load configuration and data from local storage on launch
   useEffect(() => {
     async function initApp() {
       const storedSettings = await loadSettings();
       const storedLogs = await loadLogs();
+      
+      // Artificially hold the launch screen for 500ms to appreciate the NEXUS logo
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       setSettings(storedSettings);
       setLogs(storedLogs);
     }
@@ -58,7 +85,15 @@ export default function App() {
   }, []);
 
   if (!settings) {
-    return <View style={styles.loadingScreen} />; // Simple black fallback screen during mount
+    return (
+      <View style={styles.loadingScreen}>
+        <Image 
+          source={require('./assets/splash-icon.png')} 
+          style={styles.loadingLogo}
+          resizeMode="contain"
+        />
+      </View>
+    );
   }
 
   // Calculate today's current aggregates
@@ -114,7 +149,7 @@ export default function App() {
     await saveSettings(updatedSettings);
     
     const newGoal = calculateGoal(updatedSettings);
-    Alert.alert(
+    triggerAlert(
       'Config Saved',
       `Dynamic profile successfully loaded.\nNew hydration target: ${newGoal}ml`,
       [{ text: 'OK' }]
@@ -134,7 +169,7 @@ export default function App() {
       case '/goal': {
         const amt = parseInt(parts[1], 10);
         if (isNaN(amt) || amt <= 0) {
-          Alert.alert('Invalid Parameter', 'Please provide a valid volume in ml (e.g. /goal 3000)');
+          triggerAlert('Invalid Parameter', 'Please provide a valid volume in ml (e.g. /goal 3000)');
           return;
         }
         const updated = {
@@ -144,14 +179,14 @@ export default function App() {
         };
         setSettings(updated);
         await saveSettings(updated);
-        Alert.alert('Goal Locked', `Intake target locked to: ${amt}ml`);
+        triggerAlert('Goal Locked', `Intake target locked to: ${amt}ml`);
         break;
       }
 
       case '/weight': {
         const wt = parseFloat(parts[1]);
         if (isNaN(wt) || wt <= 0) {
-          Alert.alert('Invalid Parameter', 'Please provide a valid numeric weight (e.g. /weight 75)');
+          triggerAlert('Invalid Parameter', 'Please provide a valid numeric weight (e.g. /weight 75)');
           return;
         }
         const updated: UserSettings = {
@@ -162,14 +197,14 @@ export default function App() {
         setSettings(updated);
         await saveSettings(updated);
         const computed = calculateGoal(updated);
-        Alert.alert('Weight Updated', `Weight set to ${wt}${settings.weightUnit}. Auto-calculated target: ${computed}ml`);
+        triggerAlert('Weight Updated', `Weight set to ${wt}${settings.weightUnit}. Auto-calculated target: ${computed}ml`);
         break;
       }
 
       case '/clear':
-        Alert.alert(
-          'Reset Today\'s Logs?',
-          'This will delete all logged liquid entries for today. Are you sure?',
+        triggerAlert(
+          "Reset Today's Logs?",
+          "This will delete all logged liquid entries for today. Are you sure?",
           [
             { text: 'Cancel', style: 'cancel' },
             { 
@@ -188,7 +223,7 @@ export default function App() {
 
                 setLogs(filtered);
                 await saveLogs(filtered);
-                Alert.alert('Cleared', 'Today\'s logs have been cleared.');
+                triggerAlert('Cleared', "Today's logs have been cleared.");
               }
             }
           ]
@@ -196,7 +231,7 @@ export default function App() {
         break;
 
       case '/reset':
-        Alert.alert(
+        triggerAlert(
           'Wipe Entire Database?',
           'This will permanently delete ALL historical hydration logs and restore profile settings to defaults. This action is irreversible!',
           [
@@ -221,7 +256,7 @@ export default function App() {
                   customGoal: null,
                   useAutoGoal: true,
                 });
-                Alert.alert('Database Wiped', 'Application restored to clean state.');
+                triggerAlert('Database Wiped', 'Application restored to clean state.');
               }
             }
           ]
@@ -229,7 +264,7 @@ export default function App() {
         break;
 
       default:
-        Alert.alert('Command Unknown', `Shortcut "${command}" was not recognized. Type /help to see shortcuts.`);
+        triggerAlert('Command Unknown', `Shortcut "${command}" was not recognized. Type /help to see shortcuts.`);
         break;
     }
   };
@@ -306,6 +341,15 @@ export default function App() {
           visible={helpModalVisible}
           onClose={() => setHelpModalVisible(false)}
         />
+
+        {/* Custom Obsidian Reusable Alert Modal */}
+        <AppAlertModal 
+          visible={alertConfig.visible}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          buttons={alertConfig.buttons}
+          onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+        />
       </View>
     </SafeAreaView>
   );
@@ -324,6 +368,12 @@ const styles = StyleSheet.create({
   loadingScreen: {
     flex: 1,
     backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingLogo: {
+    width: 140,
+    height: 140,
   },
   viewContainer: {
     flex: 1,

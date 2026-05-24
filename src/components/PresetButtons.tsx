@@ -13,7 +13,7 @@ interface PresetButtonsProps {
   onToggleExpand: () => void;
 }
 
-const PRESET_SIZES = [250, 330, 500, 650]; // 750ml changed to 650ml
+
 
 export default function PresetButtons({ 
   selectedType, 
@@ -119,22 +119,38 @@ export default function PresetButtons({
           {/* Preset Volume loggers */}
           <Text style={styles.sectionTitle}># container-preset</Text>
           <View style={styles.sizeRow}>
-            {PRESET_SIZES.map((size) => {
+            {(() => {
               const config = LIQUID_CONFIGS[selectedType];
-              const effectiveSize = Math.round(size * config.multiplier);
-              
-              return (
-                <TouchableOpacity
-                  key={size}
-                  activeOpacity={0.7}
-                  style={styles.sizeBtn}
-                  onPress={() => onQuickLog(size)}
-                >
-                  <Text style={styles.sizeText}>{size}ml</Text>
-                  <Text style={styles.effectiveText}>({effectiveSize}ml net)</Text>
-                </TouchableOpacity>
-              );
-            })}
+              return config.presets.map((size) => {
+                const effectiveSize = Math.round(size * config.multiplier);
+                const isStandard = size === config.standardPreset;
+                
+                return (
+                  <TouchableOpacity
+                    key={size}
+                    activeOpacity={0.7}
+                    style={[
+                      styles.sizeBtn,
+                      isStandard && {
+                        borderColor: config.color,
+                        backgroundColor: config.color + '15',
+                        borderWidth: 1.5
+                      }
+                    ]}
+                    onPress={() => onQuickLog(size)}
+                  >
+                    <Text style={[
+                      styles.sizeText,
+                      isStandard && { color: config.color, fontWeight: 'bold' }
+                    ]}>{size}ml</Text>
+                    <Text style={[
+                      styles.effectiveText,
+                      isStandard && { color: config.color, opacity: 0.8 }
+                    ]}>({effectiveSize}ml net)</Text>
+                  </TouchableOpacity>
+                );
+              });
+            })()}
           </View>
         </ScrollView>
       )}
