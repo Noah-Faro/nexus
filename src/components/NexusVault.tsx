@@ -68,10 +68,25 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const isDraggingRef = useRef(false);
   const settingsRef = useRef(settings);
+  const onUpdateSettingsRef = useRef(onUpdateSettings);
+  const onSelectAppRef = useRef(onSelectApp);
+  const onShowLockedAlertRef = useRef(onShowLockedAlert);
 
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    onUpdateSettingsRef.current = onUpdateSettings;
+  }, [onUpdateSettings]);
+
+  useEffect(() => {
+    onSelectAppRef.current = onSelectApp;
+  }, [onSelectApp]);
+
+  useEffect(() => {
+    onShowLockedAlertRef.current = onShowLockedAlert;
+  }, [onShowLockedAlert]);
 
   const panY = useRef(new Animated.Value(0)).current;
   const positionAnim = useRef<Record<string, Animated.Value>>({
@@ -162,9 +177,9 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
             // Tap!
             const config = MODULE_CONFIG[id];
             if (!config.locked) {
-              onSelectApp('hydration');
+              onSelectAppRef.current('hydration');
             } else {
-              onShowLockedAlert(config.title);
+              onShowLockedAlertRef.current(config.title);
             }
             return;
           }
@@ -179,7 +194,7 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
              isDraggingRef.current = false;
              setDraggingId(null);
              setOrder([...orderRef.current]);
-             onUpdateSettings({ ...settingsRef.current, moduleOrder: orderRef.current });
+             onUpdateSettingsRef.current({ ...settingsRef.current, moduleOrder: orderRef.current });
           });
         },
         onPanResponderTerminate: () => {
@@ -200,7 +215,7 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
                isDraggingRef.current = false;
                setDraggingId(null);
                setOrder([...orderRef.current]);
-               onUpdateSettings({ ...settingsRef.current, moduleOrder: orderRef.current });
+               onUpdateSettingsRef.current({ ...settingsRef.current, moduleOrder: orderRef.current });
             });
           } else {
             isDraggingRef.current = false;
