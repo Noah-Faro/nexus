@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14 # macOS 14 runner includes latest Xcode versions
+    runs-on: macos-15 # macOS 15 runner defaults to Xcode 16.1+ which is required by React Native
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
