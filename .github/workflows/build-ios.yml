@@ -26,10 +26,15 @@ jobs:
       - name: Generate Native iOS Directory (Expo Prebuild)
         run: npx expo prebuild --platform ios
 
+      - name: Install CocoaPods Dependencies
+        run: |
+          cd ios
+          pod install
+
       - name: Build iOS Application
         run: |
           cd ios
-          xcodebuild -workspace *.xcworkspace \
+          xcodebuild -workspace NEXUS.xcworkspace \
             -scheme NEXUS \
             -configuration Release \
             -sdk iphoneos \
