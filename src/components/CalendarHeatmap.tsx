@@ -62,40 +62,91 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
     last7Days.push({ weekday: weekdayStr, totalEffective: progress.totalEffective, goal: progress.goal, percent });
   }
 
+  // 1. Calculate Current Streak by traversing backwards from today/yesterday
   let currentStreak = 0;
+  let checkDate = new Date();
+  
+  // First, check if today is already completed
+  const todayKey = formatDateKey(checkDate.getTime());
+  const todayProg = progressMap[todayKey];
+  const todayPercent = todayProg ? Math.round((todayProg.totalEffective / todayProg.goal) * 100) : 0;
+  
+  let isStreakActive = true;
+  
+  if (todayPercent >= 100) {
+    currentStreak = 1;
+    // Go backwards starting from yesterday
+    checkDate.setDate(checkDate.getDate() - 1);
+  } else {
+    // If today is not completed, yesterday must be completed to keep the streak alive
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = formatDateKey(yesterday.getTime());
+    const yesterdayProg = progressMap[yesterdayKey];
+    const yesterdayPercent = yesterdayProg ? Math.round((yesterdayProg.totalEffective / yesterdayProg.goal) * 100) : 0;
+    
+    if (yesterdayPercent >= 100) {
+      currentStreak = 1;
+      checkDate.setDate(checkDate.getDate() - 2); // Start checking from 2 days ago
+    } else {
+      isStreakActive = false; // Yesterday not met, and today not met => current streak is 0
+    }
+  }
+  
+  if (isStreakActive) {
+    while (true) {
+      const k = formatDateKey(checkDate.getTime());
+      const prog = progressMap[k];
+      const pct = prog ? Math.round((prog.totalEffective / prog.goal) * 100) : 0;
+      
+      if (pct >= 100) {
+        currentStreak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        break; // Streak broken!
+      }
+    }
+  }
+
+  // 2. Calculate Max Streak by traversing all calendar days forward starting from first active day
   let maxStreak = 0;
   let compliantDays = 0;
   let activeDays = 0;
   
-  const dateKeys = Object.keys(progressMap).sort();
-  let tempStreak = 0;
+  const sortedActiveKeys = Object.keys(progressMap).filter(k => progressMap[k].totalEffective > 0).sort();
   
-  for (const k of dateKeys) {
-    const prog = progressMap[k];
-    if (prog.totalEffective > 0) {
-      activeDays++;
-      const p = Math.round((prog.totalEffective / prog.goal) * 100);
-      if (p >= 100) {
+  if (sortedActiveKeys.length > 0) {
+    const firstDateParts = sortedActiveKeys[0].split('-').map(Number);
+    const startDate = new Date(firstDateParts[0], firstDateParts[1] - 1, firstDateParts[2]);
+    const endDate = new Date(); // up to today
+    
+    let tempStreak = 0;
+    let currDate = new Date(startDate);
+    
+    while (currDate <= endDate) {
+      const k = formatDateKey(currDate.getTime());
+      const prog = progressMap[k];
+      
+      if (prog && prog.totalEffective > 0) {
+        activeDays++;
+      }
+      
+      const pct = prog ? Math.round((prog.totalEffective / prog.goal) * 100) : 0;
+      if (pct >= 100) {
         tempStreak++;
         compliantDays++;
-        if (tempStreak > maxStreak) maxStreak = tempStreak;
+        if (tempStreak > maxStreak) {
+          maxStreak = tempStreak;
+        }
       } else {
-        tempStreak = 0;
+        // Only break the streak if it's NOT today.
+        // Today is allowed to be incomplete without breaking the running maxStreak calculation,
+        // but if it's yesterday or earlier, a failure resets the running tempStreak to 0.
+        if (k !== todayKey) {
+          tempStreak = 0;
+        }
       }
-    }
-  }
-  
-  const todayKey = formatDateKey(Date.now());
-  const todayProg = progressMap[todayKey];
-  if (todayProg && Math.round((todayProg.totalEffective / todayProg.goal) * 100) >= 100) {
-    currentStreak = tempStreak; 
-  } else {
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
-    const yesterdayKey = formatDateKey(yesterday.getTime());
-    const yesterdayProg = progressMap[yesterdayKey];
-    if (yesterdayProg && Math.round((yesterdayProg.totalEffective / yesterdayProg.goal) * 100) >= 100) {
-      currentStreak = tempStreak;
+      currDate.setDate(currDate.getDate() + 1);
     }
   }
 

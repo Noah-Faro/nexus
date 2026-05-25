@@ -6,7 +6,7 @@ import { useFonts, Outfit_400Regular, Outfit_600SemiBold, Outfit_700Bold } from 
 
 // Core imports
 import { theme } from './src/theme';
-import { DrinkLog, UserSettings, LiquidType, LIQUID_CONFIGS } from './src/types';
+import { DrinkLog, UserSettings, LiquidType, LIQUID_CONFIGS, LiquidConfig } from './src/types';
 import { 
   loadSettings, 
   saveSettings, 
@@ -14,7 +14,8 @@ import {
   saveLogs, 
   calculateGoal, 
   getTodayProgress,
-  getAggregatedProgress
+  getAggregatedProgress,
+  DEFAULT_SETTINGS
 } from './src/storage';
 
 // Component imports
@@ -27,8 +28,10 @@ import CalendarHeatmap from './src/components/CalendarHeatmap';
 import SettingsModal from './src/components/SettingsModal';
 import GoalModal from './src/components/GoalModal';
 import ConsoleHelpModal from './src/components/ConsoleHelpModal';
+import SilentLagBanner from './src/components/SilentLagBanner';
 import AppAlertModal, { AppAlertButton } from './src/components/AppAlertModal';
 import NexusVault from './src/components/NexusVault';
+import BrewLabSheet from './src/components/BrewLabSheet';
 
 export default function App() {
   const [activeApp, setActiveApp] = useState<'vault' | 'hydration'>('vault');
@@ -40,6 +43,57 @@ export default function App() {
   const [isLoggingExpanded, setIsLoggingExpanded] = useState(false); // Collapsed by default for easy log viewing
   const [goalModalVisible, setGoalModalVisible] = useState(false); // Custom celebration modal
   const [helpModalVisible, setHelpModalVisible] = useState(false); // Custom console help modal
+  const [brewLabVisible, setBrewLabVisible] = useState(false); // Custom liquid synthesis bottom sheet
+  const [silentLagVisible, setSilentLagVisible] = useState(false);
+  const [lagMinutes, setLagMinutes] = useState(0);
+  const [deficitMl, setDeficitMl] = useState(0);
+
+  const [decafPrefs, setDecafPrefs] = useState<Record<string, boolean>>({
+    'tea': true,      // Tea defaults to decaf ON
+    'coffee': false,  // Coffee defaults to decaf OFF
+  });
+
+  useEffect(() => {
+    if (settings?.decafPrefs) {
+      setDecafPrefs(settings.decafPrefs);
+    }
+  }, [settings]);
+
+  const handleUpdateDecafPrefs = async (newPrefs: Record<string, boolean>) => {
+    setDecafPrefs(newPrefs);
+    if (settings) {
+      const updated = { ...settings, decafPrefs: newPrefs };
+      setSettings(updated);
+      await saveSettings(updated);
+    }
+  };
+
+  const handleVaultLogDrink = (amount: number, type: string, isDecafOverride?: boolean) => {
+    setSelectedType(type);
+    const isDecaf = isDecafOverride !== undefined ? isDecafOverride : (decafPrefs[type] || false);
+    
+    // Check if settings exist, compute whether this drink achieves the daily goal
+    const config = LIQUID_CONFIGS[type] || settings?.customLiquids?.[type] || LIQUID_CONFIGS['water'];
+    const effectiveAmount = amount * config.multiplier;
+    const currentProgress = getTodayProgress(logs, settings || DEFAULT_SETTINGS);
+    const newEffective = currentProgress.totalEffective + effectiveAmount;
+    
+    // Goal is completed if it crosses the goal threshold and wasn't already completed
+    const isGoalAchieved = newEffective >= currentProgress.goal && currentProgress.totalEffective < currentProgress.goal;
+
+    handleLogDrink(amount, isDecaf, type);
+
+    // Only trigger the standard success alert modal if we aren't displaying the Goal Completion Celebration modal,
+    // which prevents two React Native modals from opening simultaneously and freezing the view hierarchy.
+    if (!isGoalAchieved) {
+      const label = isDecaf ? `Decaf ${config.label}` : config.label;
+      triggerAlert(
+        'Drink Logged',
+        `Registered ${amount}ml of ${label} successfully from Vault Console.`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
 
   // State for reusable custom app alerts
   const [alertConfig, setAlertConfig] = useState<{
@@ -94,6 +148,90 @@ export default function App() {
     };
   }, []);
 
+  // Check dynamic hydration curve lagging duration in real time
+  useEffect(() => {
+    if (!settings || !logs) return;
+
+    const parseTimeToDecimal = (timeStr: string): number => {
+      const [h, m] = timeStr.split(':').map(Number);
+      return h + (m / 60);
+    };
+
+    const wakeHour = parseTimeToDecimal(settings.wakeTime || '07:00');
+    const sleepHour = parseTimeToDecimal(settings.sleepTime || '22:00');
+
+    let activeDuration = sleepHour - wakeHour;
+    if (sleepHour < wakeHour) {
+      activeDuration = (sleepHour + 24) - wakeHour;
+    }
+    activeDuration = Math.max(1, activeDuration);
+
+    const now = new Date();
+    const currDecHour = now.getHours() + (now.getMinutes() / 60);
+
+    // Check if user is currently inside sleep hours
+    let isSleeping = false;
+    if (sleepHour < wakeHour) {
+      if (currDecHour >= sleepHour && currDecHour < wakeHour) isSleeping = true;
+    } else {
+      if (currDecHour < wakeHour || currDecHour >= sleepHour) isSleeping = true;
+    }
+
+    if (isSleeping) {
+      setSilentLagVisible(false);
+      return;
+    }
+
+    // Compute target vs actual
+    const progress = getTodayProgress(logs, settings);
+    const actual = progress.totalEffective;
+    const goal = progress.goal;
+
+    let target = 0;
+    if (sleepHour < wakeHour) {
+      if (currDecHour >= wakeHour) {
+        target = goal * ((currDecHour - wakeHour) / activeDuration);
+      } else if (currDecHour < sleepHour) {
+        target = goal * ((currDecHour + 24 - wakeHour) / activeDuration);
+      }
+    } else {
+      target = goal * ((currDecHour - wakeHour) / activeDuration);
+    }
+
+    if (actual >= target) {
+      setSilentLagVisible(false);
+      return;
+    }
+
+    // Math Crossing point: t = wakeHour + (actual / goal) * activeDuration
+    const t = wakeHour + (actual / goal) * activeDuration;
+    
+    let elapsedHours = 0;
+    if (sleepHour < wakeHour) {
+      const relCurr = currDecHour >= wakeHour ? currDecHour : currDecHour + 24;
+      const relT = Math.max(wakeHour, t);
+      elapsedHours = relCurr - relT;
+    } else {
+      elapsedHours = currDecHour - Math.max(wakeHour, t);
+    }
+
+    const elapsedMinutes = Math.max(0, elapsedHours * 60);
+    const deficit = Math.max(0, target - actual);
+
+    // If lagging for more than 30 minutes, trigger the silent banner!
+    if (elapsedMinutes >= 30) {
+      setLagMinutes(elapsedMinutes);
+      setDeficitMl(deficit);
+      
+      const timer = setTimeout(() => {
+        setSilentLagVisible(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else {
+      setSilentLagVisible(false);
+    }
+  }, [logs, settings]);
+
   if (!settings || !fontsLoaded) {
     return (
       <View style={styles.loadingScreen}>
@@ -110,18 +248,36 @@ export default function App() {
   const todayProgress = getTodayProgress(logs, settings);
 
   // Handle logging a drink
-  const handleLogDrink = async (amount: number) => {
+  const handleLogDrink = async (amount: number, isDecaf?: boolean, drinkType?: string) => {
     // Tactile haptic tap when logging a drink
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    const config = LIQUID_CONFIGS[selectedType];
+    const typeToLog = drinkType || selectedType;
+    const config = LIQUID_CONFIGS[typeToLog as LiquidType] || settings?.customLiquids?.[typeToLog] || LIQUID_CONFIGS['water'];
+    
+    // Coffee flat caffeine math: Coffee logged below 250ml records 80mg, otherwise scales linearly
+    let caffeineMg = undefined;
+    if (config.caffeineMg && !isDecaf) {
+      if (typeToLog === 'coffee') {
+        if (amount < 250) {
+          caffeineMg = 80;
+        } else {
+          caffeineMg = Math.round((amount / 250) * 80);
+        }
+      } else {
+        caffeineMg = Math.round((amount / config.standardPreset) * config.caffeineMg);
+      }
+    }
+
     const newLog: DrinkLog = {
       id: Math.random().toString(36).substring(2, 15) + Date.now().toString(36),
       timestamp: Date.now(),
       amount,
-      type: selectedType,
+      type: typeToLog,
       tag: config.tag,
       effectiveAmount: amount * config.multiplier,
+      caffeineMg,
+      isDecaf: !!isDecaf
     };
 
     const updatedLogs = [newLog, ...logs];
@@ -155,34 +311,36 @@ export default function App() {
 
   // Save profile metrics settings
   const handleSaveSettings = async (updatedSettings: UserSettings) => {
-    const changedFields: string[] = [];
-    if (settings) {
-      if (settings.userName !== updatedSettings.userName) changedFields.push(`Name: ${updatedSettings.userName || 'Cleared'}`);
-      if (settings.weight !== updatedSettings.weight) changedFields.push(`Weight: ${updatedSettings.weight}`);
-      if (settings.weightUnit !== updatedSettings.weightUnit) changedFields.push(`Unit: ${updatedSettings.weightUnit}`);
-      if (settings.activityLevel !== updatedSettings.activityLevel) changedFields.push(`Activity: ${updatedSettings.activityLevel}`);
-      if (settings.useAutoGoal !== updatedSettings.useAutoGoal) changedFields.push(`Goal Mode: ${updatedSettings.useAutoGoal ? 'Auto' : 'Manual'}`);
-      if (settings.customGoal !== updatedSettings.customGoal) changedFields.push(updatedSettings.customGoal ? `Manual Goal: ${updatedSettings.customGoal}ml` : 'Manual Goal: Cleared');
-      
-      const oldGoal = calculateGoal(settings);
-      const newGoal = calculateGoal(updatedSettings);
-      if (oldGoal !== newGoal) {
-        changedFields.push(`Water Goal: ${oldGoal}ml ➝ ${newGoal}ml`);
-      }
-      // Note: we don't list moduleOrder here so that silent drags don't popup alerts
-    }
-
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
-    
-    // Only alert if there were visible profile changes
-    if (changedFields.length > 0) {
-      triggerAlert(
-        'Config Saved',
-        `Dynamic profile successfully loaded.\n\nChanges:\n• ${changedFields.join('\n• ')}`,
-        [{ text: 'OK' }]
-      );
-    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  // Custom liquid formulas synthesized in the Brew Lab
+  const handleAddCustomLiquid = async (newConfig: LiquidConfig) => {
+    if (!settings) return;
+    const updatedLiquids = {
+      ...(settings.customLiquids || {}),
+      [newConfig.tag]: newConfig
+    };
+    const updatedSettings = {
+      ...settings,
+      customLiquids: updatedLiquids
+    };
+    setSettings(updatedSettings);
+    await saveSettings(updatedSettings);
+  };
+
+  const handleDeleteCustomLiquid = async (tag: string) => {
+    if (!settings) return;
+    const customLiquids = { ...(settings.customLiquids || {}) };
+    delete customLiquids[tag];
+    const updatedSettings = {
+      ...settings,
+      customLiquids
+    };
+    setSettings(updatedSettings);
+    await saveSettings(updatedSettings);
   };
 
   // Process slash commands from Obsidian command console
@@ -270,23 +428,9 @@ export default function App() {
               style: 'destructive',
               onPress: async () => {
                 setLogs([]);
-                setSettings({
-                  userName: '',
-                  weight: 70,
-                  weightUnit: 'kg',
-                  activityLevel: 'moderate',
-                  customGoal: null,
-                  useAutoGoal: true,
-                });
+                setSettings(DEFAULT_SETTINGS);
                 await saveLogs([]);
-                await saveSettings({
-                  userName: '',
-                  weight: 70,
-                  weightUnit: 'kg',
-                  activityLevel: 'moderate',
-                  customGoal: null,
-                  useAutoGoal: true,
-                });
+                await saveSettings(DEFAULT_SETTINGS);
                 triggerAlert('Database Wiped', 'Application restored to clean state.');
               }
             }
@@ -322,6 +466,7 @@ export default function App() {
             }}
             onUpdateSettings={handleSaveSettings}
             activeDaysCount={Object.keys(getAggregatedProgress(logs, settings)).filter(k => getAggregatedProgress(logs, settings)[k].logs.length > 0).length}
+            onLogDrinkDirect={handleVaultLogDrink}
           />
         ) : (
           <>
@@ -342,9 +487,12 @@ export default function App() {
                   keyboardVerticalOffset={Platform.OS === 'ios' ? 135 : 0}
                 >
                   {/* Daily log scroll checklist */}
+                  {/* Daily log scroll checklist */}
                   <DailyNoteView 
                     progress={todayProgress} 
                     onDeleteLog={handleDeleteLog} 
+                    settings={settings}
+                    logs={logs}
                   />
                   
                   {/* Preset tags selection grid */}
@@ -354,6 +502,11 @@ export default function App() {
                     onQuickLog={handleLogDrink}
                     isExpanded={isLoggingExpanded}
                     onSetExpanded={(expanded) => setIsLoggingExpanded(expanded)}
+                    settings={settings}
+                    onOpenBrewLab={() => setBrewLabVisible(true)}
+                    onDeleteCustomLiquid={handleDeleteCustomLiquid}
+                    decafPrefs={decafPrefs}
+                    onUpdateDecafPrefs={handleUpdateDecafPrefs}
                   />
 
                   {/* Console command palette */}
@@ -361,12 +514,13 @@ export default function App() {
                     selectedType={selectedType}
                     onLog={handleLogDrink}
                     onCommand={handleCommand}
+                    settings={settings}
                   />
                 </KeyboardAvoidingView>
               )}
 
               {activeView === 'stats' && (
-                <GraphView progress={todayProgress} />
+                <GraphView progress={todayProgress} logs={logs} settings={settings} />
               )}
 
               {activeView === 'calendar' && (
@@ -395,6 +549,7 @@ export default function App() {
         <ConsoleHelpModal 
           visible={helpModalVisible}
           onClose={() => setHelpModalVisible(false)}
+          settings={settings}
         />
 
         {/* Custom Obsidian Reusable Alert Modal */}
@@ -404,6 +559,19 @@ export default function App() {
           message={alertConfig.message}
           buttons={alertConfig.buttons}
           onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+        />
+
+        <SilentLagBanner 
+          visible={silentLagVisible}
+          onClose={() => setSilentLagVisible(false)}
+          lagMinutes={lagMinutes}
+          deficitMl={deficitMl}
+        />
+
+        <BrewLabSheet 
+          visible={brewLabVisible}
+          onClose={() => setBrewLabVisible(false)}
+          onSave={handleAddCustomLiquid}
         />
       </View>
     </SafeAreaView>

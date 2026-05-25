@@ -1,15 +1,20 @@
 import React, { useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Keyboard, Animated, PanResponder } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Keyboard, Animated, PanResponder, Alert } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
-import { LiquidType, LIQUID_CONFIGS } from '../types';
+import { LiquidType, LIQUID_CONFIGS, UserSettings, LiquidConfig } from '../types';
 
 interface PresetButtonsProps {
   selectedType: LiquidType;
   onSelectType: (type: LiquidType) => void;
-  onQuickLog: (amount: number) => void;
+  onQuickLog: (amount: number, isDecaf?: boolean) => void;
   isExpanded: boolean;
   onSetExpanded: (expanded: boolean) => void;
+  settings: UserSettings;
+  onOpenBrewLab: () => void;
+  onDeleteCustomLiquid: (tag: string) => void;
+  decafPrefs: Record<string, boolean>;
+  onUpdateDecafPrefs: (prefs: Record<string, boolean>) => void;
 }
 
 export default function PresetButtons({ 
@@ -17,11 +22,17 @@ export default function PresetButtons({
   onSelectType, 
   onQuickLog,
   isExpanded,
-  onSetExpanded
+  onSetExpanded,
+  settings,
+  onOpenBrewLab,
+  onDeleteCustomLiquid,
+  decafPrefs,
+  onUpdateDecafPrefs
 }: PresetButtonsProps) {
+  const currentDecaf = decafPrefs[selectedType] || false;
 
   const MIN_HEIGHT = 45;
-  const MAX_HEIGHT = 380;
+  const MAX_HEIGHT = 430;
   
   const animatedHeight = useRef(new Animated.Value(isExpanded ? MAX_HEIGHT : MIN_HEIGHT)).current;
   const currentHeight = useRef(isExpanded ? MAX_HEIGHT : MIN_HEIGHT);
@@ -171,35 +182,128 @@ export default function PresetButtons({
         
         {/* Beverage Grid */}
         <View style={styles.grid}>
-          {(Object.keys(LIQUID_CONFIGS) as LiquidType[]).map((type) => {
-            const config = LIQUID_CONFIGS[type];
-            const isSelected = selectedType === type;
+          {(() => {
+            const standardTypes = Object.keys(LIQUID_CONFIGS) as LiquidType[];
+            const customConfigs = settings.customLiquids || {};
+            const customTypes = Object.keys(customConfigs);
             
-            return (
+            const handleSelect = (type: string) => {
+              Haptics.selectionAsync(); 
+              onSelectType(type);
+            };
+
+            const renderCard = (type: string, config: LiquidConfig, isCustom: boolean) => {
+              const isSelected = selectedType === type;
+              
+              // Dynamic label based on decaf selection
+              const cardIsDecaf = decafPrefs[type] || false;
+              let displayLabel = config.label;
+              if (cardIsDecaf) {
+                if (type === 'tea') displayLabel = 'Decaf Tea';
+                else if (type === 'coffee') displayLabel = 'Decaf Coffee';
+              }
+
+              // Dynamic badge logic: hide caffeine badge if it's currently decaf
+              const showBadge = config.caffeineMg && !cardIsDecaf;
+              
+              const handleLongPress = () => {
+                if (!isCustom) return;
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                Alert.alert(
+                  'Delete Custom Formula',
+                  `Remove "${config.label}" from your deck?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                      text: 'Delete', 
+                      style: 'destructive',
+                      onPress: () => {
+                        onDeleteCustomLiquid(type);
+                        if (selectedType === type) {
+                          onSelectType('water');
+                        }
+                      }
+                    }
+                  ]
+                );
+              };
+
+              return (
+                <TouchableOpacity
+                  key={type}
+                  activeOpacity={0.7}
+                  style={[
+                    styles.card,
+                    isSelected && styles.cardActive,
+                    isSelected && { borderColor: config.color, backgroundColor: config.color + '10' }
+                  ]}
+                  onPress={() => handleSelect(type)}
+                  onLongPress={handleLongPress}
+                  delayLongPress={600}
+                >
+                  <View style={styles.cardHeader}>
+                    <View style={[styles.colorDot, { backgroundColor: config.color }]} />
+                    <Text style={styles.cardMultiplier}>
+                      {config.multiplier > 0 ? `+${config.multiplier.toFixed(2)}x` : `${config.multiplier.toFixed(2)}x`}
+                    </Text>
+                  </View>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.cardLabel} numberOfLines={1}>{displayLabel}</Text>
+                    {showBadge ? (
+                      <Text style={styles.caffBadge}>{config.caffeineMg}mg</Text>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              );
+            };
+
+            return [
+              ...standardTypes.map(t => renderCard(t, LIQUID_CONFIGS[t], false)),
+              ...customTypes.map(t => renderCard(t, customConfigs[t], true)),
               <TouchableOpacity
-                key={type}
+                key="add-custom"
                 activeOpacity={0.7}
-                style={[
-                  styles.card,
-                  isSelected && styles.cardActive,
-                  isSelected && { borderColor: config.color, backgroundColor: config.color + '10' }
-                ]}
-                onPress={() => handleSelect(type)}
+                style={[styles.card, styles.cardAddCustom]}
+                onPress={onOpenBrewLab}
               >
                 <View style={styles.cardHeader}>
-                  <View style={[styles.colorDot, { backgroundColor: config.color }]} />
-                  <Text style={styles.cardMultiplier}>{config.multiplier}x</Text>
+                  <Text style={styles.addCustomPlus}>+</Text>
                 </View>
-                <Text style={styles.cardLabel}>{config.label}</Text>
+                <Text style={styles.cardLabelAddCustom}>Synthesize</Text>
               </TouchableOpacity>
-            );
-          })}
+            ];
+          })()}
         </View>
 
-        <Text style={styles.sectionTitle}>Quick Log</Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Quick Log</Text>
+          {(selectedType === 'coffee' || selectedType === 'tea') && (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                Haptics.selectionAsync();
+                onUpdateDecafPrefs({
+                  ...decafPrefs,
+                  [selectedType]: !currentDecaf
+                });
+              }}
+              style={[
+                styles.decafToggleBtn,
+                currentDecaf ? styles.decafActiveBtn : styles.caffeineActiveBtn
+              ]}
+            >
+              <Text style={[
+                styles.decafToggleText,
+                currentDecaf ? styles.decafActiveText : styles.caffeineActiveText
+              ]}>
+                {currentDecaf ? 'Decaf ON' : 'Caffeine ON'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <View style={styles.sizeRow}>
           {(() => {
-            const config = LIQUID_CONFIGS[selectedType];
+            const config = LIQUID_CONFIGS[selectedType as LiquidType] || settings.customLiquids?.[selectedType] || LIQUID_CONFIGS['water'];
             return config.presets.map((size) => {
               const effectiveSize = Math.round(size * config.multiplier);
               const isStandard = size === config.standardPreset;
@@ -215,7 +319,7 @@ export default function PresetButtons({
                       borderColor: config.color,
                     }
                   ]}
-                  onPress={() => onQuickLog(size)}
+                  onPress={() => onQuickLog(size, currentDecaf)}
                 >
                   <Text style={[
                     styles.sizeText,
@@ -345,5 +449,78 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: theme.colors.textMuted,
     marginTop: 4,
+  },
+  cardAddCustom: {
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: 'transparent',
+  },
+  addCustomPlus: {
+    fontSize: 20,
+    color: theme.colors.textMuted,
+    fontWeight: 'bold',
+    lineHeight: 20,
+  },
+  cardLabelAddCustom: {
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
+    color: theme.colors.textMuted,
+    fontWeight: theme.typography.weight.semibold,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  caffBadge: {
+    fontFamily: theme.typography.sans,
+    fontSize: 10,
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(255, 159, 10, 0.15)',
+    color: '#ff9f0a',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+    marginTop: 4,
+    width: '100%',
+  },
+  decafToggleBtn: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  decafActiveBtn: {
+    backgroundColor: 'rgba(50, 215, 75, 0.1)',
+    borderColor: '#32d74b',
+  },
+  decafActiveText: {
+    color: '#32d74b',
+  },
+  caffeineActiveBtn: {
+    backgroundColor: 'rgba(255, 159, 10, 0.15)',
+    borderColor: '#ff9f0a',
+  },
+  caffeineActiveText: {
+    color: '#ff9f0a',
+  },
+  decafToggleText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    fontWeight: theme.typography.weight.semibold,
   },
 });

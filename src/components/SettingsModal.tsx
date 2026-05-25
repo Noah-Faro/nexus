@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Switch, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { X, Check } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { UserSettings } from '../types';
 import { calculateGoal } from '../storage';
@@ -19,27 +20,52 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
   const [activityLevel, setActivityLevel] = useState<'sedentary' | 'moderate' | 'active'>(settings.activityLevel);
   const [useAutoGoal, setUseAutoGoal] = useState(settings.useAutoGoal);
   const [customGoal, setCustomGoal] = useState(String(settings.customGoal || 2500));
+  const [wakeTime, setWakeTime] = useState(settings.wakeTime || '07:00');
+  const [sleepTime, setSleepTime] = useState(settings.sleepTime || '22:00');
+  const [hapticRemindersEnabled, setHapticRemindersEnabled] = useState(settings.hapticRemindersEnabled !== false);
+  const [wakeError, setWakeError] = useState(false);
+  const [sleepError, setSleepError] = useState(false);
 
   const handleSave = () => {
+    const timeRegex = /^(0[0-9]|1[0-9]|2[0-3]|[0-9]):[0-5][0-9]$/;
+    const isWakeValid = timeRegex.test(wakeTime.trim());
+    const isSleepValid = timeRegex.test(sleepTime.trim());
+
+    setWakeError(!isWakeValid);
+    setSleepError(!isSleepValid);
+
+    if (!isWakeValid || !isSleepValid) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return; // Block save if invalid
+    }
+
     const updatedSettings: UserSettings = {
+      ...settings,
       userName: userName.trim(),
       weight: parseFloat(weight) || 70,
       weightUnit,
       activityLevel,
       useAutoGoal,
       customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
+      wakeTime: wakeTime.trim(),
+      sleepTime: sleepTime.trim(),
+      hapticRemindersEnabled,
     };
     onSave(updatedSettings);
     onClose();
   };
 
   const tempSettings: UserSettings = {
+    ...settings,
     userName: userName.trim(),
     weight: parseFloat(weight) || 70,
     weightUnit,
     activityLevel,
     useAutoGoal,
     customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
+    wakeTime: wakeTime.trim() || '07:00',
+    sleepTime: sleepTime.trim() || '22:00',
+    hapticRemindersEnabled,
   };
   const computedGoal = calculateGoal(tempSettings);
 
@@ -159,6 +185,75 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                     returnKeyType="done"
                   />
                 )}
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Schedule & Reminders</Text>
+              </View>
+              
+              <View style={styles.row}>
+                <View style={styles.textStack}>
+                  <Text style={styles.label}>Wake Time</Text>
+                  <Text style={styles.subtext}>Curve alignment start (e.g. 07:00)</Text>
+                </View>
+                <TextInput
+                  style={[styles.input, styles.targetInput, wakeError && styles.inputError]}
+                  value={wakeTime}
+                  onChangeText={(text) => {
+                    setWakeTime(text);
+                    if (wakeError) setWakeError(false);
+                  }}
+                  placeholder="07:00"
+                  placeholderTextColor={theme.colors.textSubtle}
+                  returnKeyType="done"
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+              </View>
+              {wakeError && (
+                <Text style={styles.errorText}>Please enter a valid 24h format (e.g., 07:30)</Text>
+              )}
+
+              <View style={styles.divider} />
+
+              <View style={styles.row}>
+                <View style={styles.textStack}>
+                  <Text style={styles.label}>Sleep Time</Text>
+                  <Text style={styles.subtext}>Active duration target (e.g. 22:00)</Text>
+                </View>
+                <TextInput
+                  style={[styles.input, styles.targetInput, sleepError && styles.inputError]}
+                  value={sleepTime}
+                  onChangeText={(text) => {
+                    setSleepTime(text);
+                    if (sleepError) setSleepError(false);
+                  }}
+                  placeholder="22:00"
+                  placeholderTextColor={theme.colors.textSubtle}
+                  returnKeyType="done"
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+              </View>
+              {sleepError && (
+                <Text style={styles.errorText}>Please enter a valid 24h format (e.g., 23:15)</Text>
+              )}
+
+              <View style={styles.divider} />
+
+              <View style={styles.row}>
+                <View style={styles.textStack}>
+                  <Text style={styles.label}>Haptic Reminders</Text>
+                  <Text style={styles.subtext}>Tactile alert when lagging behind curve</Text>
+                </View>
+                <Switch
+                  value={hapticRemindersEnabled}
+                  onValueChange={setHapticRemindersEnabled}
+                  trackColor={{ false: theme.colors.surface, true: '#34C759' }}
+                  ios_backgroundColor={theme.colors.surface}
+                />
               </View>
             </View>
           </ScrollView>
@@ -378,5 +473,17 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: theme.typography.weight.bold,
     color: '#000000',
+  },
+  inputError: {
+    borderColor: theme.colors.accentRed,
+    borderWidth: 1,
+  },
+  errorText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.accentRed,
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: 8,
+    marginTop: -4,
   },
 });

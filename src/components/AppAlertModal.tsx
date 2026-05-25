@@ -43,7 +43,7 @@ export default function AppAlertModal({ visible, title, message, buttons, onClos
 
           <View style={isRowLayout ? styles.rowButtons : styles.colButtons}>
             {activeButtons.map((btn, index) => {
-              let btnStyle = styles.defaultBtnText;
+              let btnStyle: any = styles.defaultBtnText;
               if (btn.style === 'destructive') btnStyle = styles.destructiveBtnText;
               if (btn.style === 'cancel') btnStyle = styles.cancelBtnText;
 

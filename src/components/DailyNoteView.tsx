@@ -1,15 +1,19 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
-import { Trash2, CheckCircle2, Circle } from 'lucide-react-native';
+import { Trash2, CheckCircle2, Circle, Coffee, AlertCircle, TrendingDown, TrendingUp, Sparkles } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
-import { DayProgress, LIQUID_CONFIGS } from '../types';
+import { DayProgress, LIQUID_CONFIGS, UserSettings, DrinkLog } from '../types';
+import { calculateActiveCaffeine, getHydrationCurveData } from '../storage';
 
 interface DailyNoteViewProps {
   progress: DayProgress;
   onDeleteLog: (id: string) => void;
+  settings: UserSettings;
+  logs: DrinkLog[];
 }
 
-export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewProps) {
+export default function DailyNoteView({ progress, onDeleteLog, settings, logs }: DailyNoteViewProps) {
   const getFormattedDateHeader = (dateStr: string) => {
     if (!dateStr) return '';
     const [year, month, day] = dateStr.split('-');
@@ -27,6 +31,14 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
 
   const isCompleted = percentage >= 100;
 
+  // V2 Calculations
+  const { activeMg, hoursToClear } = calculateActiveCaffeine(logs);
+  const curveData = getHydrationCurveData(logs, settings);
+  const currentHour = new Date().getHours();
+  const currentPt = curveData[currentHour] || curveData[curveData.length - 1];
+  const curveDiff = currentPt ? currentPt.actual - currentPt.target : 0;
+  const isLagging = curveDiff < -0.12 * progress.goal; // Lagging behind by more than 12%
+
   return (
     <ScrollView 
       style={styles.container} 
@@ -41,6 +53,40 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
             {isCompleted ? 'Completed' : `${percentage}%`}
           </Text>
         </View>
+      </View>
+
+      {/* Curves Status Banners */}
+      <View style={styles.bannersBox}>
+        {/* Hydration Curve Status */}
+        <View style={[
+          styles.bannerRow,
+          curveDiff >= 0 ? styles.bannerRowSuccess : styles.bannerRowWarning
+        ]}>
+          {curveDiff >= 0 ? (
+            <TrendingUp size={16} color={theme.colors.accentGreen} style={styles.bannerIcon} />
+          ) : (
+            <TrendingDown size={16} color={theme.colors.accentRed} style={styles.bannerIcon} />
+          )}
+          <Text style={[
+            styles.bannerText,
+            { color: curveDiff >= 0 ? theme.colors.accentGreen : theme.colors.accentRed }
+          ]}>
+            {curveDiff >= 0 
+              ? `Dynamic Curve Compliant (+${curveDiff}ml ahead)`
+              : `Lagging Behind Curve Target (-${Math.abs(curveDiff)}ml behind)`
+            }
+          </Text>
+        </View>
+
+        {/* Caffeine Pool Status */}
+        {activeMg > 0 && (
+          <View style={[styles.bannerRow, styles.bannerRowCaff]}>
+            <Coffee size={16} color="#ff9f0a" style={styles.bannerIcon} />
+            <Text style={[styles.bannerText, { color: '#ff9f0a' }]}>
+              Active Caffeine Pool: {activeMg}mg {hoursToClear > 0 ? `(sleep-safe in ${hoursToClear}h)` : '(sleep-safe)'}
+            </Text>
+          </View>
+        )}
       </View>
       
       {/* Metrics representation */}
@@ -73,7 +119,9 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
               hour12: true 
             });
 
-            const config = Object.values(LIQUID_CONFIGS).find(c => c.tag === log.tag) || LIQUID_CONFIGS['water'];
+            const config = Object.values(LIQUID_CONFIGS).find(c => c.tag === log.tag) || 
+                           (settings.customLiquids && Object.values(settings.customLiquids).find(c => c.tag === log.tag)) || 
+                           LIQUID_CONFIGS['water'];
 
             return (
               <View key={log.id} style={styles.logRow}>
@@ -85,12 +133,17 @@ export default function DailyNoteView({ progress, onDeleteLog }: DailyNoteViewPr
                 <View style={styles.logDetails}>
                   <View style={styles.logHeader}>
                     <Text style={styles.logContent}>
-                      {log.amount}ml {config.label}
+                      {log.amount}ml {log.isDecaf ? `Decaf ${config.label}` : config.label}
                     </Text>
                     <Text style={styles.logTime}>{timeStr}</Text>
                   </View>
                   <View style={styles.tagBadgeRow}>
-                    <Text style={[styles.logTag, { color: config.color }]}>{config.label}</Text>
+                    <Text style={[styles.logTag, { color: config.color }]}>
+                      {log.isDecaf ? `Decaf ${config.label}` : config.label}
+                    </Text>
+                    {log.caffeineMg && log.caffeineMg > 0 ? (
+                      <Text style={styles.caffeineHint}>• {log.caffeineMg}mg caffeine</Text>
+                    ) : null}
                     {log.effectiveAmount !== log.amount && (
                       <Text style={styles.multiplierHint}>
                          ({Number(log.effectiveAmount.toFixed(1))}ml net)
@@ -279,5 +332,42 @@ const styles = StyleSheet.create({
     padding: 8,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  bannersBox: {
+    marginBottom: theme.spacing.md,
+    gap: 8,
+  },
+  bannerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: 1,
+  },
+  bannerRowSuccess: {
+    backgroundColor: 'rgba(50, 215, 75, 0.08)',
+    borderColor: 'rgba(50, 215, 75, 0.15)',
+  },
+  bannerRowWarning: {
+    backgroundColor: 'rgba(255, 69, 58, 0.08)',
+    borderColor: 'rgba(255, 69, 58, 0.15)',
+  },
+  bannerRowCaff: {
+    backgroundColor: 'rgba(255, 159, 10, 0.08)',
+    borderColor: 'rgba(255, 159, 10, 0.15)',
+  },
+  bannerIcon: {
+    marginRight: 8,
+  },
+  bannerText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    fontWeight: theme.typography.weight.semibold,
+  },
+  caffeineHint: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: '#ff9f0a',
+    fontWeight: theme.typography.weight.semibold,
   },
 });

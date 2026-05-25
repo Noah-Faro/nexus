@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Animated, PanResponder } from 'react-native';
-import { Droplet, Dumbbell, DollarSign, BookOpen, Settings } from 'lucide-react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Animated, PanResponder, KeyboardAvoidingView, Platform, Keyboard, TextInput } from 'react-native';
+import { Droplet, Dumbbell, DollarSign, BookOpen, Settings, ArrowUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { UserSettings } from '../types';
@@ -12,6 +12,7 @@ interface NexusVaultProps {
   onShowLockedAlert: (moduleName: string) => void;
   onUpdateSettings: (settings: UserSettings) => void;
   activeDaysCount: number;
+  onLogDrinkDirect?: (amount: number, type: string, isDecafOverride?: boolean) => void;
 }
 
 const MODULE_CONFIG: Record<string, any> = {
@@ -57,7 +58,7 @@ const CARD_HEIGHT = 92;
 const CARD_MARGIN = 16;
 const CARD_SIZE = CARD_HEIGHT + CARD_MARGIN;
 
-export default function NexusVault({ settings, onOpenSettings, onSelectApp, onShowLockedAlert, onUpdateSettings, activeDaysCount }: NexusVaultProps) {
+export default function NexusVault({ settings, onOpenSettings, onSelectApp, onShowLockedAlert, onUpdateSettings, activeDaysCount, onLogDrinkDirect }: NexusVaultProps) {
   const [greeting, setGreeting] = useState('');
 
   const [order, setOrder] = useState<string[]>(settings.moduleOrder || ['hydration', 'training', 'capital', 'knowledge']);
@@ -71,6 +72,114 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
   const onUpdateSettingsRef = useRef(onUpdateSettings);
   const onSelectAppRef = useRef(onSelectApp);
   const onShowLockedAlertRef = useRef(onShowLockedAlert);
+
+  const [inputVal, setInputVal] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [viewMenu, setViewMenu] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+
+  const handleCloseHelp = () => {
+    setShowHelp(false);
+    setViewMenu(false);
+  };
+
+  useEffect(() => {
+    if (errorMsg) {
+      const timer = setTimeout(() => setErrorMsg(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMsg]);
+
+  const triggerError = (msg: string) => {
+    setErrorMsg(msg);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  };
+
+  const handleSubmit = () => {
+    const trimmed = inputVal.trim();
+    if (!trimmed) return;
+
+    if (trimmed.toLowerCase() === '/help') {
+      setInputVal('');
+      setShowHelp(true);
+      inputRef.current?.blur();
+      Keyboard.dismiss();
+      return;
+    }
+
+    if (!trimmed.startsWith('/')) {
+      triggerError('Invalid format. Commands must start with /');
+      return;
+    }
+
+    const parts = trimmed.split(/\s+/);
+    const command = parts[0].toLowerCase();
+
+    if (command !== '/wt') {
+      triggerError(`Unknown command: "${command}". Type /help`);
+      return;
+    }
+
+    if (parts.length < 3) {
+      triggerError('Usage: /wt [decaf] <beverage> <volume>');
+      return;
+    }
+
+    // Advanced space-padded parsing: take last token as volume, and intermediate as beverage
+    const volumeStr = parts[parts.length - 1];
+    const amount = parseInt(volumeStr, 10);
+
+    if (isNaN(amount) || amount <= 0) {
+      triggerError('Volume must be a positive number (ml) at the end of the command.');
+      return;
+    }
+
+    let beverageInput = parts.slice(1, parts.length - 1).join(' ').toLowerCase().trim();
+
+    // Check explicit decaf prefix or suffix overrides
+    let isDecafOverride: boolean | undefined = undefined;
+    if (beverageInput.startsWith('decaf ')) {
+      isDecafOverride = true;
+      beverageInput = beverageInput.substring(6).trim();
+    } else if (beverageInput.endsWith(' decaf')) {
+      isDecafOverride = true;
+      beverageInput = beverageInput.substring(0, beverageInput.length - 6).trim();
+    }
+
+    // Space and hyphen normalization helper
+    const normalizeName = (str: string) => str.toLowerCase().replace(/[-\s]+/g, ' ').trim();
+    const normalizedSearch = normalizeName(beverageInput);
+
+    const standardTypes = ['water', 'coffee', 'tea', 'soda', 'juice', 'sports-drink', 'beer', 'wine'];
+    const customTypes = settings?.customLiquids ? Object.keys(settings.customLiquids) : [];
+    const validTypes = [...standardTypes, ...customTypes];
+
+    const matchedType = validTypes.find(t => {
+      const normalizedKey = normalizeName(t);
+      if (normalizedKey === normalizedSearch) return true;
+      
+      const label = settings?.customLiquids?.[t]?.label || '';
+      return normalizeName(label) === normalizedSearch;
+    });
+
+    if (!matchedType) {
+      triggerError(`Beverage "${beverageInput}" not found. Type /help for menu.`);
+      return;
+    }
+
+    if (onLogDrinkDirect) {
+      setInputVal('');
+      inputRef.current?.blur();
+      Keyboard.dismiss();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Delay to let keyboard dismiss fully and avoid focus competition layout freezes
+      setTimeout(() => {
+        onLogDrinkDirect(amount, matchedType, isDecafOverride);
+      }, 150);
+    }
+  };
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -231,7 +340,8 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
     const hour = new Date().getHours();
     
     let timeGreeting = '';
-    if (hour < 12) timeGreeting = 'Good morning';
+    if (hour >= 0 && hour < 4) timeGreeting = 'Good night';
+    else if (hour < 12) timeGreeting = 'Good morning';
     else if (hour < 18) timeGreeting = 'Good afternoon';
     else timeGreeting = 'Good evening';
 
@@ -241,7 +351,6 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
           `Welcome back, ${name}.`,
           `Good to see you, ${name}.`,
           `Hey there, ${name}.`,
-          `Cheers, ${name}.`,
           `Ready to conquer the day, ${name}?`,
           `Awaiting orders, Commander ${name}.`,
           `System online, ${name}.`
@@ -260,90 +369,231 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
   }, [settings.userName]);
 
   return (
-    <ScrollView 
-      style={styles.container} 
-      contentContainerStyle={styles.content}
-      scrollEnabled={draggingId === null}
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+      style={{ flex: 1 }}
     >
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.title}>N E X U S</Text>
-          <TouchableOpacity onPress={onOpenSettings} style={styles.settingsBtn}>
-            <Settings size={22} color={theme.colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.subtitle}>{greeting}</Text>
-      </View>
+      <View style={{ flex: 1 }}>
+        <ScrollView 
+          style={styles.container} 
+          contentContainerStyle={styles.content}
+          scrollEnabled={draggingId === null}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <View style={styles.headerTop}>
+              <Text style={styles.title}>N E X U S</Text>
+              <TouchableOpacity onPress={onOpenSettings} style={styles.settingsBtn}>
+                <Settings size={22} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.subtitle}>{greeting}</Text>
+          </View>
 
-      <View style={[styles.grid, { height: 4 * CARD_SIZE }]}>
-        {order.map((id) => {
-          const config = MODULE_CONFIG[id];
-          const isDragging = draggingId === id;
-          const isPressing = pressingId === id;
-          const IconComponent = config.icon;
+          <View style={[styles.grid, { height: 4 * CARD_SIZE }]}>
+            {order.map((id) => {
+              const config = MODULE_CONFIG[id];
+              const isDragging = draggingId === id;
+              const isPressing = pressingId === id;
+              const IconComponent = config.icon;
 
-          let scale = 1.0;
-          if (isDragging) scale = 1.04;
-          else if (isPressing) scale = 0.97;
+              let scale = 1.0;
+              if (isDragging) scale = 1.04;
+              else if (isPressing) scale = 0.97;
 
-          let opacity = 1.0;
-          if (config.locked) opacity = 0.5;
-          else if (isDragging) opacity = 1.0;
-          else if (draggingId !== null) opacity = 0.6;
-          else if (isPressing) opacity = 0.85;
+              let opacity = 1.0;
+              if (config.locked) opacity = 0.5;
+              else if (isDragging) opacity = 1.0;
+              else if (draggingId !== null) opacity = 0.6;
+              else if (isPressing) opacity = 0.85;
 
-          return (
-            <Animated.View
-              key={id}
-              style={[
-                styles.cardWrapper,
-                {
-                  transform: [
-                    { translateY: isDragging ? panY : positionAnim[id] },
-                    { scale: scale }
-                  ],
-                  zIndex: isDragging ? 100 : 1,
-                  opacity: opacity,
-                }
-              ]}
-              {...panResponders[id].panHandlers}
+              return (
+                <Animated.View
+                  key={id}
+                  style={[
+                    styles.cardWrapper,
+                    {
+                      transform: [
+                        { translateY: isDragging ? panY : positionAnim[id] },
+                        { scale: scale }
+                      ],
+                      zIndex: isDragging ? 100 : 1,
+                      opacity: opacity,
+                    }
+                  ]}
+                  {...panResponders[id].panHandlers}
+                >
+                  <View 
+                    style={[
+                      styles.card, 
+                      config.locked && styles.lockedCard,
+                      isDragging && styles.draggedCard
+                    ]}
+                  >
+                    <View style={[styles.iconBox, { backgroundColor: config.bg }]}>
+                      <IconComponent size={28} color={config.color} />
+                    </View>
+                    <View style={styles.cardContent}>
+                      <Text style={styles.cardTitle}>{config.title}</Text>
+                      <Text style={styles.cardDesc}>{config.desc}</Text>
+                    </View>
+                  </View>
+                </Animated.View>
+              );
+            })}
+          </View>
+
+          <View style={styles.diagnosticsBlock}>
+            <Text style={styles.diagTitle}>System Status</Text>
+            <View style={styles.diagRow}>
+              <Text style={styles.diagLabel}>Version</Text>
+              <Text style={styles.diagValue}>1.0.0</Text>
+            </View>
+            <View style={styles.diagRow}>
+              <Text style={styles.diagLabel}>Storage</Text>
+              <Text style={styles.diagValue}>Encrypted Local</Text>
+            </View>
+            <View style={[styles.diagRow, { borderBottomWidth: 0 }]}>
+              <Text style={styles.diagLabel}>History</Text>
+              <Text style={styles.diagValue}>{activeDaysCount} Days</Text>
+            </View>
+          </View>
+        </ScrollView>
+
+        {/* Console command palette */}
+        <View style={styles.consoleContainer}>
+          {errorMsg ? (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorText}>{errorMsg}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.consoleInputContainer}>
+            <TextInput
+              ref={inputRef}
+              style={styles.consoleTextInput}
+              value={inputVal}
+              onChangeText={setInputVal}
+              placeholder="/help"
+              placeholderTextColor={theme.colors.textMuted}
+              keyboardType="default"
+              returnKeyType="go"
+              onSubmitEditing={handleSubmit}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <TouchableOpacity 
+              style={[styles.consoleSubmitBtn, !!inputVal.trim() && { backgroundColor: theme.colors.accent }]} 
+              onPress={handleSubmit}
+              activeOpacity={0.7}
             >
-              <View 
-                style={[
-                  styles.card, 
-                  config.locked && styles.lockedCard,
-                  isDragging && styles.draggedCard
-                ]}
-              >
-                <View style={[styles.iconBox, { backgroundColor: config.bg }]}>
-                  <IconComponent size={28} color={config.color} />
-                </View>
-                <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle}>{config.title}</Text>
-                  <Text style={styles.cardDesc}>{config.desc}</Text>
-                </View>
-              </View>
-            </Animated.View>
-          );
-        })}
+              <ArrowUp size={18} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
-      <View style={styles.diagnosticsBlock}>
-        <Text style={styles.diagTitle}>System Status</Text>
-        <View style={styles.diagRow}>
-          <Text style={styles.diagLabel}>Version</Text>
-          <Text style={styles.diagValue}>1.0.0</Text>
+      {/* Sleek help overlay */}
+      {showHelp && (
+        <View style={styles.helpOverlay}>
+          <TouchableOpacity 
+            activeOpacity={1} 
+            style={styles.helpOverlayBackdrop} 
+            onPress={handleCloseHelp} 
+          />
+          <View style={styles.helpBox}>
+            <View style={styles.helpHeader}>
+              <Text style={styles.helpTitle}>{viewMenu ? 'Supported Drinks' : 'Vault Console'}</Text>
+              <TouchableOpacity onPress={handleCloseHelp} style={styles.helpCloseBtn}>
+                <Text style={styles.helpCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {viewMenu ? (
+              <ScrollView style={styles.helpScroll} showsVerticalScrollIndicator={true}>
+                <Text style={styles.helpIntro}>
+                  Use any of these names (case-insensitive) in your <Text style={styles.codeText}>/wt</Text> commands:
+                </Text>
+                
+                <View style={styles.menuSection}>
+                  <Text style={styles.menuSecTitle}>Standard Beverages</Text>
+                  <View style={styles.menuGrid}>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>water</Text><Text style={styles.menuItemLabel}>Water</Text></View>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>coffee</Text><Text style={styles.menuItemLabel}>Coffee</Text></View>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>tea</Text><Text style={styles.menuItemLabel}>Tea</Text></View>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>soda</Text><Text style={styles.menuItemLabel}>Soda</Text></View>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>juice</Text><Text style={styles.menuItemLabel}>Juice</Text></View>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>sports drink</Text><Text style={styles.menuItemLabel}>Isotonic</Text></View>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>beer</Text><Text style={styles.menuItemLabel}>Beer</Text></View>
+                    <View style={styles.menuItem}><Text style={styles.menuItemKey}>wine</Text><Text style={styles.menuItemLabel}>Wine</Text></View>
+                  </View>
+                </View>
+
+                {settings.customLiquids && Object.keys(settings.customLiquids).length > 0 ? (
+                  <View style={styles.menuSection}>
+                    <Text style={styles.menuSecTitle}>Your Synthesized Formulas</Text>
+                    <View style={styles.menuGrid}>
+                      {Object.keys(settings.customLiquids).map(key => {
+                        const config = settings.customLiquids![key];
+                        return (
+                          <View key={key} style={styles.menuItem}>
+                            <Text style={styles.menuItemKey}>{key}</Text>
+                            <Text style={styles.menuItemLabel} numberOfLines={1}>{config.label}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                <TouchableOpacity 
+                  style={[styles.menuToggleBtn, { marginTop: 16, alignSelf: 'center', marginBottom: 24 }]} 
+                  onPress={() => setViewMenu(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.menuToggleBtnText}>Back to Commands</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            ) : (
+              <ScrollView style={styles.helpScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.helpIntro}>
+                  Manage your modules and log metrics directly using command-line syntax.
+                </Text>
+                
+                <View style={styles.commandRow}>
+                  <Text style={styles.commandSyntax}>/wt [decaf] &lt;beverage&gt; &lt;volume&gt;</Text>
+                  <Text style={styles.commandDesc}>
+                    Logs fluid in the tracker. Supports spaces in names and explicit decaf overrides.
+                  </Text>
+                  <Text style={styles.commandExample}>
+                    Examples:{"\n"}
+                    • <Text style={styles.codeText}>/wt water 250</Text>{"\n"}
+                    • <Text style={styles.codeText}>/wt decaf coffee 150</Text>{"\n"}
+                    • <Text style={styles.codeText}>/wt sports drink 500</Text>
+                  </Text>
+                  <TouchableOpacity 
+                    style={[styles.menuToggleBtn, { marginTop: 12, alignSelf: 'flex-start' }]} 
+                    onPress={() => setViewMenu(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.menuToggleBtnText}>View Supported Drinks</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.commandRow}>
+                  <Text style={styles.commandSyntax}>/help</Text>
+                  <Text style={styles.commandDesc}>
+                    Displays this console reference guide.
+                  </Text>
+                </View>
+              </ScrollView>
+            )}
+          </View>
         </View>
-        <View style={styles.diagRow}>
-          <Text style={styles.diagLabel}>Storage</Text>
-          <Text style={styles.diagValue}>Encrypted Local</Text>
-        </View>
-        <View style={[styles.diagRow, { borderBottomWidth: 0 }]}>
-          <Text style={styles.diagLabel}>History</Text>
-          <Text style={styles.diagValue}>{activeDaysCount} Days</Text>
-        </View>
-      </View>
-    </ScrollView>
+      )}
+    </KeyboardAvoidingView>
   );
 }
 
@@ -355,7 +605,7 @@ const styles = StyleSheet.create({
   content: {
     padding: theme.spacing.lg,
     paddingTop: 50,
-    paddingBottom: 60,
+    paddingBottom: theme.spacing.lg,
   },
   header: {
     marginBottom: 40,
@@ -466,5 +716,199 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: theme.colors.text,
     fontWeight: theme.typography.weight.medium,
+  },
+  consoleContainer: {
+    marginHorizontal: 12,
+    marginBottom: Platform.OS === 'ios' ? 12 : 8,
+    backgroundColor: 'rgba(28, 28, 30, 0.96)',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+    padding: 4,
+  },
+  consoleInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 16,
+    height: 48,
+  },
+  consoleTextInput: {
+    flex: 1,
+    color: theme.colors.text,
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
+    height: '100%',
+  },
+  consoleSubmitBtn: {
+    backgroundColor: theme.colors.surface,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorBanner: {
+    backgroundColor: 'rgba(255, 69, 58, 0.15)',
+    borderColor: '#ff453a',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  errorText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    color: '#ff453a',
+    textAlign: 'center',
+    fontWeight: theme.typography.weight.medium,
+  },
+  helpOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 200,
+  },
+  helpOverlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+  },
+  helpBox: {
+    width: '85%',
+    height: '75%',
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  helpHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  helpTitle: {
+    fontFamily: theme.typography.sans,
+    fontSize: 18,
+    fontWeight: theme.typography.weight.bold,
+    color: theme.colors.text,
+  },
+  helpCloseBtn: {
+    padding: 4,
+  },
+  helpCloseText: {
+    color: theme.colors.textMuted,
+    fontSize: 16,
+  },
+  helpScroll: {
+    flexGrow: 0,
+  },
+  helpIntro: {
+    fontFamily: theme.typography.sans,
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    lineHeight: 20,
+    marginBottom: theme.spacing.lg,
+  },
+  commandRow: {
+    marginBottom: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  commandSyntax: {
+    fontFamily: 'Outfit_600SemiBold',
+    fontSize: 15,
+    color: theme.colors.accent,
+    marginBottom: 4,
+  },
+  commandDesc: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    color: theme.colors.text,
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  commandExample: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textMuted,
+  },
+  codeText: {
+    color: '#ff9f0a',
+    fontFamily: theme.typography.sans,
+  },
+  menuSection: {
+    marginBottom: 16,
+  },
+  menuSecTitle: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    fontWeight: theme.typography.weight.bold,
+    color: theme.colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  menuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  menuItem: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    width: '47%',
+    justifyContent: 'center',
+  },
+  menuItemKey: {
+    fontFamily: 'Outfit_600SemiBold',
+    fontSize: 14,
+    color: theme.colors.accent,
+    marginBottom: 2,
+  },
+  menuItemLabel: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textMuted,
+  },
+  menuFooterBtnRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.colors.border,
+    paddingTop: 12,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  menuToggleBtn: {
+    backgroundColor: theme.colors.surface,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  menuToggleBtnText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    fontWeight: theme.typography.weight.bold,
+    color: theme.colors.text,
   },
 });

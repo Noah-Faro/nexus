@@ -5,6 +5,8 @@ export interface DrinkLog {
   type: string;      // e.g., 'water', 'coffee', 'tea', 'soda'
   tag: string;       // e.g., '#water', '#coffee', '#tea', '#soda'
   effectiveAmount: number; // amount * multiplier
+  caffeineMg?: number; // Caffeine content in mg
+  isDecaf?: boolean;   // Optional decaf flag
 }
 
 export interface UserSettings {
@@ -15,9 +17,14 @@ export interface UserSettings {
   customGoal: number | null;  // manual target in ml (overrides automatic weight-based goal if set)
   useAutoGoal: boolean;       // whether to calculate goals automatically based on weight
   moduleOrder: string[];      // order of modules in the Vault
+  customLiquids?: Record<string, LiquidConfig>; // user-defined drinks
+  wakeTime?: string;          // Wakeup time in "HH:MM", default "07:00"
+  sleepTime?: string;         // Sleep time in "HH:MM", default "22:00"
+  hapticRemindersEnabled?: boolean; // toggle smart reminders
+  decafPrefs?: Record<string, boolean>; // decaf preferences dictionary
 }
 
-export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine';
+export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine' | string;
 
 export interface LiquidConfig {
   tag: string;
@@ -26,6 +33,7 @@ export interface LiquidConfig {
   color: string;
   standardPreset: number;
   presets: number[];
+  caffeineMg?: number;        // Optional caffeine content per standardPreset volume (mg)
 }
 
 export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
@@ -43,7 +51,8 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     multiplier: 0.7,
     color: '#855845', // Espresso Brown
     standardPreset: 250,
-    presets: [40, 150, 250, 330] // Supports 40ml Espresso
+    presets: [30, 150, 250, 330], // Supports 30ml Espresso
+    caffeineMg: 80
   },
   'tea': {
     tag: '#tea',
@@ -51,7 +60,8 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     multiplier: 0.8,
     color: '#32d74b', // iOS Green
     standardPreset: 250,
-    presets: [150, 250, 330, 500]
+    presets: [150, 250, 330, 500],
+    caffeineMg: 30
   },
   'soda': {
     tag: '#soda',
