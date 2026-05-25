@@ -32,14 +32,16 @@ import SilentLagBanner from './src/components/SilentLagBanner';
 import AppAlertModal, { AppAlertButton } from './src/components/AppAlertModal';
 import NexusVault from './src/components/NexusVault';
 import BrewLabSheet from './src/components/BrewLabSheet';
+import TrainingApp from './src/components/TrainingApp';
 
 export default function App() {
-  const [activeApp, setActiveApp] = useState<'vault' | 'hydration'>('vault');
+  const [activeApp, setActiveApp] = useState<'vault' | 'hydration' | 'training'>('vault');
   const [activeView, setActiveView] = useState<'tracker' | 'stats' | 'calendar'>('tracker');
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [logs, setLogs] = useState<DrinkLog[]>([]);
   const [selectedType, setSelectedType] = useState<LiquidType>('water');
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [ironCommand, setIronCommand] = useState<string | undefined>(undefined);
   const [isLoggingExpanded, setIsLoggingExpanded] = useState(false); // Collapsed by default for easy log viewing
   const [goalModalVisible, setGoalModalVisible] = useState(false); // Custom celebration modal
   const [helpModalVisible, setHelpModalVisible] = useState(false); // Custom console help modal
@@ -452,9 +454,12 @@ export default function App() {
           <NexusVault 
             settings={settings}
             onOpenSettings={() => setSettingsVisible(true)}
-            onSelectApp={(app) => {
-              if (app === 'hydration') {
-                setActiveApp('hydration');
+            onSelectApp={(app, initialCommand) => {
+              if (app === 'hydration' || app === 'training') {
+                setActiveApp(app);
+                if (app === 'training') {
+                  setIronCommand(initialCommand);
+                }
               }
             }}
             onShowLockedAlert={(moduleName) => {
@@ -467,6 +472,14 @@ export default function App() {
             onUpdateSettings={handleSaveSettings}
             activeDaysCount={Object.keys(getAggregatedProgress(logs, settings)).filter(k => getAggregatedProgress(logs, settings)[k].logs.length > 0).length}
             onLogDrinkDirect={handleVaultLogDrink}
+          />
+        ) : activeApp === 'training' ? (
+          <TrainingApp 
+            onReturn={() => {
+              setActiveApp('vault');
+              setIronCommand(undefined);
+            }} 
+            initialCommand={ironCommand}
           />
         ) : (
           <>

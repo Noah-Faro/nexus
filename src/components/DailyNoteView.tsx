@@ -67,10 +67,14 @@ export default function DailyNoteView({ progress, onDeleteLog, settings, logs }:
           ) : (
             <TrendingDown size={16} color={theme.colors.accentRed} style={styles.bannerIcon} />
           )}
-          <Text style={[
-            styles.bannerText,
-            { color: curveDiff >= 0 ? theme.colors.accentGreen : theme.colors.accentRed }
-          ]}>
+          <Text 
+            style={[
+              styles.bannerText,
+              { color: curveDiff >= 0 ? theme.colors.accentGreen : theme.colors.accentRed }
+            ]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {curveDiff >= 0 
               ? `Dynamic Curve Compliant (+${curveDiff}ml ahead)`
               : `Lagging Behind Curve Target (-${Math.abs(curveDiff)}ml behind)`
@@ -82,7 +86,11 @@ export default function DailyNoteView({ progress, onDeleteLog, settings, logs }:
         {activeMg > 0 && (
           <View style={[styles.bannerRow, styles.bannerRowCaff]}>
             <Coffee size={16} color="#ff9f0a" style={styles.bannerIcon} />
-            <Text style={[styles.bannerText, { color: '#ff9f0a' }]}>
+            <Text 
+              style={[styles.bannerText, { color: '#ff9f0a' }]}
+              numberOfLines={1} 
+              ellipsizeMode="tail"
+            >
               Active Caffeine Pool: {activeMg}mg {hoursToClear > 0 ? `(sleep-safe in ${hoursToClear}h)` : '(sleep-safe)'}
             </Text>
           </View>
@@ -363,6 +371,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.sans,
     fontSize: 13,
     fontWeight: theme.typography.weight.semibold,
+    flex: 1,
   },
   caffeineHint: {
     fontFamily: theme.typography.sans,

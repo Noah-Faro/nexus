@@ -8,7 +8,7 @@ import { UserSettings } from '../types';
 interface NexusVaultProps {
   settings: UserSettings;
   onOpenSettings: () => void;
-  onSelectApp: (app: 'hydration') => void;
+  onSelectApp: (app: 'hydration' | 'training', initialCommand?: string) => void;
   onShowLockedAlert: (moduleName: string) => void;
   onUpdateSettings: (settings: UserSettings) => void;
   activeDaysCount: number;
@@ -30,9 +30,9 @@ const MODULE_CONFIG: Record<string, any> = {
     title: 'Training',
     desc: 'Log workouts, sets, and progress.',
     icon: Dumbbell,
-    color: theme.colors.textMuted,
+    color: '#a1a1a6', // Titanium silver accent
     bg: 'rgba(142, 142, 147, 0.1)',
-    locked: true,
+    locked: false,
   },
   capital: {
     id: 'capital',
@@ -115,6 +115,25 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
 
     const parts = trimmed.split(/\s+/);
     const command = parts[0].toLowerCase();
+
+    if (command === '/iron') {
+      if (parts.length < 2) {
+        triggerError('Usage: /iron start <template> | /iron history');
+        return;
+      }
+      const ironSub = parts[1].toLowerCase();
+      if (ironSub === 'start') {
+        const templateName = parts.slice(2).join(' ');
+        onSelectApp('training', `start ${templateName}`);
+        setInputVal('');
+      } else if (ironSub === 'history') {
+        onSelectApp('training', 'history');
+        setInputVal('');
+      } else {
+        triggerError('Unknown iron command: ' + ironSub);
+      }
+      return;
+    }
 
     if (command !== '/wt') {
       triggerError(`Unknown command: "${command}". Type /help`);
@@ -286,7 +305,7 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
             // Tap!
             const config = MODULE_CONFIG[id];
             if (!config.locked) {
-              onSelectAppRef.current('hydration');
+              onSelectAppRef.current(id as 'hydration' | 'training');
             } else {
               onShowLockedAlertRef.current(config.title);
             }
@@ -580,6 +599,25 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
                   >
                     <Text style={styles.menuToggleBtnText}>View Supported Drinks</Text>
                   </TouchableOpacity>
+                </View>
+
+                <View style={styles.commandRow}>
+                  <Text style={styles.commandSyntax}>/iron start &lt;template name&gt;</Text>
+                  <Text style={styles.commandDesc}>
+                    Starts a new training session from a saved template.
+                  </Text>
+                  <Text style={styles.commandExample}>
+                    Examples:{"\n"}
+                    • <Text style={styles.codeText}>/iron start Push Day</Text>{"\n"}
+                    • <Text style={styles.codeText}>/iron start Full Body</Text>
+                  </Text>
+                </View>
+
+                <View style={styles.commandRow}>
+                  <Text style={styles.commandSyntax}>/iron history</Text>
+                  <Text style={styles.commandDesc}>
+                    Opens the training history view.
+                  </Text>
                 </View>
 
                 <View style={styles.commandRow}>
