@@ -1,7 +1,7 @@
 // src/googleDrive.ts
 export async function findStateFileId(token: string): Promise<{ id: string, modifiedTime: string } | null> {
   const q = encodeURIComponent("name='state.nexus' and 'appDataFolder' in parents");
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)`, {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=appDataFolder&fields=files(id,modifiedTime)`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!res.ok) {
@@ -48,7 +48,7 @@ export async function uploadStateToDrive(token: string, fileId: string | null, e
 }
 
 export async function downloadStateFromDrive(token: string, fileId: string): Promise<string> {
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&spaces=appDataFolder`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!res.ok) {
