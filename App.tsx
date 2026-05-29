@@ -31,9 +31,14 @@ import GoalModal from './src/components/GoalModal';
 import ConsoleHelpModal from './src/components/ConsoleHelpModal';
 import * as Notifications from 'expo-notifications';
 import AppAlertModal, { AppAlertButton } from './src/components/AppAlertModal';
+import PasswordPromptModal from './src/components/PasswordPromptModal';
 import NexusVault from './src/components/NexusVault';
 import BrewLabSheet from './src/components/BrewLabSheet';
 import TrainingApp from './src/components/TrainingApp';
+import { useGoogleDriveAuth } from './src/googleAuth';
+import { performDriveSync } from './src/sync';
+import { findStateFileId } from './src/googleDrive';
+import * as SecureStore from 'expo-secure-store';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -60,6 +65,85 @@ export default function App() {
     'tea': true,      // Tea defaults to decaf ON
     'coffee': false,  // Coffee defaults to decaf OFF
   });
+
+  // Google Drive Auto-Sync
+  const { accessToken } = useGoogleDriveAuth();
+  const [passwordPromptVisible, setPasswordPromptVisible] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const hasCheckedSync = useRef(false);
+
+  useEffect(() => {
+    // Only run this check once when app mounts and accessToken is available and auto-sync is enabled
+    if (accessToken && !hasCheckedSync.current && settings?.googleDriveAutoSyncEnabled !== false) {
+      hasCheckedSync.current = true;
+      findStateFileId(accessToken).then(async (remoteFile) => {
+        if (remoteFile) {
+          // Attempt silent sync using saved password in secure storage
+          try {
+            const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
+            if (savedPassword) {
+              setIsSyncing(true);
+              const success = await performDriveSync(accessToken, savedPassword, (msg) => {
+                console.log('Silent sync:', msg);
+              });
+              if (success) {
+                // Reload data into state
+                const storedSettings = await loadSettings();
+                const storedLogs = await loadLogs();
+                setSettings(storedSettings);
+                setLogs(storedLogs);
+                console.log('Silent auto-sync completed successfully');
+                setIsSyncing(false);
+                return;
+              } else {
+                // Stored password might be invalid (e.g. changed on another device), clear it
+                await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
+              }
+            }
+          } catch (err) {
+            console.log('Error reading stored password for silent sync:', err);
+          } finally {
+            setIsSyncing(false);
+          }
+
+          // Found a remote file on startup, prompt for password to pull changes
+          setPasswordPromptVisible(true);
+        }
+      }).catch(err => {
+        console.log('Silent auto-sync check failed:', err);
+      });
+    }
+  }, [accessToken, settings]);
+
+  const handleExecuteStartupSync = async (password: string) => {
+    if (!accessToken) return;
+    setPasswordPromptVisible(false);
+    setIsSyncing(true);
+    
+    try {
+      const success = await performDriveSync(accessToken, password, (msg) => {
+        console.log(msg); // Silent progress
+      });
+      if (success) {
+        // Save the successful password securely for future silent syncs
+        await SecureStore.setItemAsync('nexus_vault_password', password).catch(console.error);
+        // Reload data into state
+        const storedSettings = await loadSettings();
+        const storedLogs = await loadLogs();
+        setSettings(storedSettings);
+        setLogs(storedLogs);
+        triggerAlert('Cloud Sync Complete', 'Successfully restored your vault from Google Drive.');
+      } else {
+        await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
+        triggerAlert('Sync Failed', 'Could not sync from Google Drive.');
+      }
+    } catch (err: any) {
+      await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
+      triggerAlert('Sync Failed', err.message || 'An error occurred during sync.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   useEffect(() => {
     if (settings?.decafPrefs) {
@@ -617,6 +701,14 @@ export default function App() {
           visible={brewLabVisible}
           onClose={() => setBrewLabVisible(false)}
           onSave={handleAddCustomLiquid}
+        />
+
+        <PasswordPromptModal
+          visible={passwordPromptVisible}
+          title="Cloud Backup Found"
+          message="A backup was found in Google Drive. Enter your vault password to decrypt and merge it."
+          onSubmit={handleExecuteStartupSync}
+          onCancel={() => setPasswordPromptVisible(false)}
         />
       </View>
     </SafeAreaView>

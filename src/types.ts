@@ -24,6 +24,7 @@ export interface UserSettings {
   hapticRemindersEnabled?: boolean; // toggle smart reminders
   lagNotificationsEnabled?: boolean; // toggle smart push notifications
   decafPrefs?: Record<string, boolean>; // decaf preferences dictionary
+  googleDriveAutoSyncEnabled?: boolean; // toggle auto-sync on startup
 }
 
 export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine';

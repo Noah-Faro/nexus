@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   wakeTime: '07:00',
   sleepTime: '22:00',
   hapticRemindersEnabled: true,
+  googleDriveAutoSyncEnabled: true,
 };
 
 export const ACTIVITY_HYDRATION_MULTIPLIERS = {

@@ -7,7 +7,10 @@ import { UserSettings } from '../types';
 import SegmentedControl from './SegmentedControl';
 import { calculateGoal } from '../storage';
 import { exportVaultBackup, pickAndImportBackup } from '../backup';
-import { Lock, Download, UploadCloud } from 'lucide-react-native';
+import { Lock, Download, UploadCloud, Cloud, RefreshCw } from 'lucide-react-native';
+import { useGoogleDriveAuth } from '../googleAuth';
+import { performDriveSync } from '../sync';
+import * as SecureStore from 'expo-secure-store';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -26,6 +29,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
   const [wakeTime, setWakeTime] = useState(settings.wakeTime || '07:00');
   const [sleepTime, setSleepTime] = useState(settings.sleepTime || '22:00');
   const [lagNotificationsEnabled, setLagNotificationsEnabled] = useState(settings.lagNotificationsEnabled !== false);
+  const [googleDriveAutoSyncEnabled, setGoogleDriveAutoSyncEnabled] = useState(settings.googleDriveAutoSyncEnabled !== false);
   const [wakeError, setWakeError] = useState(false);
   const [sleepError, setSleepError] = useState(false);
 
@@ -34,6 +38,10 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
   const [backupError, setBackupError] = useState('');
   const [backupSuccess, setBackupSuccess] = useState('');
   const [isProcessingBackup, setIsProcessingBackup] = useState(false);
+
+  // Google Drive Auth
+  const { accessToken, request, promptAsync, logout } = useGoogleDriveAuth();
+  const [syncStatus, setSyncStatus] = useState('');
 
   useEffect(() => {
     if (visible) {
@@ -46,6 +54,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
       setWakeTime(settings.wakeTime || '07:00');
       setSleepTime(settings.sleepTime || '22:00');
       setLagNotificationsEnabled(settings.lagNotificationsEnabled !== false);
+      setGoogleDriveAutoSyncEnabled(settings.googleDriveAutoSyncEnabled !== false);
       setWakeError(false);
       setSleepError(false);
     }
@@ -75,6 +84,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
       wakeTime: wakeTime.trim(),
       sleepTime: sleepTime.trim(),
       lagNotificationsEnabled,
+      googleDriveAutoSyncEnabled,
     };
     onSave(updatedSettings);
     onClose();
@@ -131,6 +141,37 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
       }
     } catch (err: any) {
       setBackupError(err.message || 'Import failed');
+    } finally {
+      setIsProcessingBackup(false);
+    }
+  };
+
+  const handleDriveSync = async () => {
+    if (!accessToken) return;
+    if (!backupPassword || backupPassword.length < 4) {
+      setBackupError('Password required for Google Drive Sync');
+      return;
+    }
+    
+    setIsProcessingBackup(true);
+    setBackupError('');
+    setBackupSuccess('');
+    
+    try {
+      const success = await performDriveSync(accessToken, backupPassword, (msg) => {
+        setSyncStatus(msg);
+      });
+      if (success) {
+        // Save password securely in device keychain for seamless startup auto-syncs
+        await SecureStore.setItemAsync('nexus_vault_password', backupPassword).catch(console.error);
+        setBackupSuccess('Cloud sync completed successfully!');
+        setSyncStatus('');
+      } else {
+        setBackupError('Cloud sync failed.');
+      }
+    } catch (err: any) {
+      setBackupError(err.message || 'Sync failed');
+      setSyncStatus('');
     } finally {
       setIsProcessingBackup(false);
     }
@@ -363,6 +404,66 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                     <Download size={18} color={theme.colors.text} />
                     <Text style={[styles.backupBtnText, { color: theme.colors.text }]}>Import</Text>
                   </TouchableOpacity>
+                </View>
+                
+                {/* Cloud Sync UI */}
+                <View style={[styles.divider, { marginVertical: 16, marginLeft: 0 }]} />
+                <View style={styles.cloudSyncContainer}>
+                  <Text style={styles.label}>Google Drive Sync</Text>
+                  <Text style={styles.subtext}>
+                    Securely sync your encrypted vault to a hidden Google Drive folder.
+                  </Text>
+                  
+                  <View style={[styles.row, { paddingHorizontal: 0, paddingVertical: 12, marginTop: 4 }]}>
+                    <View style={styles.textStack}>
+                      <Text style={[styles.label, { fontSize: 16 }]}>Auto-Sync on Startup</Text>
+                      <Text style={styles.subtext}>
+                        Automatically sync and decrypt from Google Drive on launch
+                      </Text>
+                    </View>
+                    <Switch
+                      value={googleDriveAutoSyncEnabled}
+                      onValueChange={(val) => {
+                        setGoogleDriveAutoSyncEnabled(val);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      trackColor={{ false: theme.colors.surface, true: '#34C759' }}
+                      ios_backgroundColor={theme.colors.surface}
+                    />
+                  </View>
+                  
+                  {!accessToken ? (
+                    <TouchableOpacity 
+                      style={[styles.backupBtn, { marginTop: 12 }]} 
+                      onPress={() => promptAsync()}
+                      disabled={!request}
+                    >
+                      <Cloud size={18} color={theme.colors.background} />
+                      <Text style={styles.backupBtnText}>Connect Google Drive</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={{ marginTop: 12, gap: 8 }}>
+                      <View style={{ flexDirection: 'row', gap: 12 }}>
+                        <TouchableOpacity 
+                          style={[styles.backupBtn, isProcessingBackup && { opacity: 0.5 }]} 
+                          onPress={handleDriveSync}
+                          disabled={isProcessingBackup}
+                        >
+                          <RefreshCw size={18} color={theme.colors.background} />
+                          <Text style={styles.backupBtnText}>Sync Now</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          style={[styles.backupBtn, styles.backupBtnSecondary, { flex: 0.5 }]} 
+                          onPress={logout}
+                          disabled={isProcessingBackup}
+                        >
+                          <Text style={[styles.backupBtnText, { color: theme.colors.text }]}>Disconnect</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {!!syncStatus && <Text style={[styles.subtext, { textAlign: 'center', marginTop: 4 }]}>{syncStatus}</Text>}
+                    </View>
+                  )}
                 </View>
               </View>
             </View>
@@ -633,5 +734,8 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.semibold,
     fontSize: 15,
     color: '#000',
+  },
+  cloudSyncContainer: {
+    marginTop: 8,
   },
 });

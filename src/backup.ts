@@ -7,35 +7,39 @@ import { loadWorkoutSessions, loadTemplates, loadCustomExercises, loadExerciseDe
 import { saveSettings, saveLogs } from './storage';
 import { saveWorkoutSessions, saveTemplates, saveCustomExercises, saveExerciseDefaults } from './trainingStorage';
 
+export async function exportVaultBackupToString(password: string): Promise<string> {
+  // 1. Gather all state
+  const state = {
+    version: '1.0',
+    exportedAt: new Date().toISOString(),
+    hydration_history: await loadLogs(),
+    settings: await loadSettings(),
+    workout_sessions: await loadWorkoutSessions(),
+    workout_templates: await loadTemplates(),
+    custom_exercises: await loadCustomExercises(),
+    exercise_defaults: await loadExerciseDefaults(),
+  };
+
+  const payloadJson = JSON.stringify(state);
+
+  // 2. Encrypt payload using user password
+  const { key, salt } = deriveKeyFromPassword(password);
+  const encryptedPayload = encryptAESGCM(payloadJson, key);
+
+  // 3. Construct .nexus file format
+  return JSON.stringify({
+    version: '1.0',
+    exportedAt: state.exportedAt,
+    encrypted: true,
+    salt: salt,
+    payload: encryptedPayload,
+  });
+}
+
 export async function exportVaultBackup(password: string): Promise<void> {
   try {
-    // 1. Gather all state
-    const state = {
-      version: '1.0',
-      exportedAt: new Date().toISOString(),
-      hydration_history: await loadLogs(),
-      settings: await loadSettings(),
-      workout_sessions: await loadWorkoutSessions(),
-      workout_templates: await loadTemplates(),
-      custom_exercises: await loadCustomExercises(),
-      exercise_defaults: await loadExerciseDefaults(),
-    };
-
-    const payloadJson = JSON.stringify(state);
-
-    // 2. Encrypt payload using user password
-    const { key, salt } = deriveKeyFromPassword(password);
-    const encryptedPayload = encryptAESGCM(payloadJson, key);
-
-    // 3. Construct .nexus file format
-    const fileContent = JSON.stringify({
-      version: '1.0',
-      exportedAt: state.exportedAt,
-      encrypted: true,
-      salt: salt,
-      payload: encryptedPayload,
-    });
-
+    const fileContent = await exportVaultBackupToString(password);
+    
     // 4. Save to temp directory and share
     const fileName = `Nexus_Backup_${new Date().toISOString().split('T')[0]}.nexus`;
     const tempUri = FileSystem.cacheDirectory + fileName;
@@ -57,6 +61,38 @@ export async function exportVaultBackup(password: string): Promise<void> {
   }
 }
 
+export async function importVaultBackupFromString(fileStr: string, password: string): Promise<void> {
+  const backupData = JSON.parse(fileStr);
+
+  if (!backupData.encrypted || !backupData.salt || !backupData.payload) {
+    throw new Error('Invalid or corrupt backup file format.');
+  }
+
+  // 2. Decrypt
+  const { key } = deriveKeyFromPassword(password, backupData.salt);
+  let decryptedStr = '';
+  try {
+    decryptedStr = decryptAESGCM(backupData.payload, key);
+  } catch (e) {
+    throw new Error('Incorrect password or corrupt payload.');
+  }
+
+  const state = JSON.parse(decryptedStr);
+
+  // STATE MERGING GUARDRAILS: Schema validation
+  if (!state.version || !state.hydration_history || !state.workout_templates) {
+    throw new Error('Backup payload is missing critical top-level tracking keys.');
+  }
+
+  // 3. Restore state (Merge/Replace logic - currently Replace All for simplicity)
+  await saveSettings(state.settings);
+  await saveLogs(state.hydration_history);
+  await saveWorkoutSessions(state.workout_sessions);
+  await saveTemplates(state.workout_templates);
+  if (state.custom_exercises) await saveCustomExercises(state.custom_exercises);
+  if (state.exercise_defaults) await saveExerciseDefaults(state.exercise_defaults);
+}
+
 export async function importVaultBackup(fileUri: string, password: string): Promise<void> {
   try {
     // APP SANDBOX PATH COPYING:
@@ -66,35 +102,7 @@ export async function importVaultBackup(fileUri: string, password: string): Prom
 
     // 1. Read file
     const fileStr = await FileSystem.readAsStringAsync(localUri);
-    const backupData = JSON.parse(fileStr);
-
-    if (!backupData.encrypted || !backupData.salt || !backupData.payload) {
-      throw new Error('Invalid or corrupt backup file format.');
-    }
-
-    // 2. Decrypt
-    const { key } = deriveKeyFromPassword(password, backupData.salt);
-    let decryptedStr = '';
-    try {
-      decryptedStr = decryptAESGCM(backupData.payload, key);
-    } catch (e) {
-      throw new Error('Incorrect password or corrupt payload.');
-    }
-
-    const state = JSON.parse(decryptedStr);
-
-    // STATE MERGING GUARDRAILS: Schema validation
-    if (!state.version || !state.hydration_history || !state.workout_templates) {
-      throw new Error('Backup payload is missing critical top-level tracking keys.');
-    }
-
-    // 3. Restore state (Merge/Replace logic - currently Replace All for simplicity)
-    await saveSettings(state.settings);
-    await saveLogs(state.hydration_history);
-    await saveWorkoutSessions(state.workout_sessions);
-    await saveTemplates(state.workout_templates);
-    if (state.custom_exercises) await saveCustomExercises(state.custom_exercises);
-    if (state.exercise_defaults) await saveExerciseDefaults(state.exercise_defaults);
+    await importVaultBackupFromString(fileStr, password);
 
     // Cleanup
     await FileSystem.deleteAsync(localUri, { idempotent: true });
