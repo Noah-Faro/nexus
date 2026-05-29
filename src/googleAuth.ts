@@ -13,6 +13,12 @@ const GOOGLE_IOS_CLIENT_ID = '487589350519-njhmlbtte7vq4oc1edofetjs5539i57j.apps
 
 const TOKEN_STORAGE_KEY = 'nexus_google_drive_token';
 
+const discovery = {
+  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+  tokenEndpoint: 'https://oauth2.googleapis.com/token',
+  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
+};
+
 export const useGoogleDriveAuth = () => {
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
@@ -20,15 +26,15 @@ export const useGoogleDriveAuth = () => {
     scheme: 'nexus'
   });
 
+  const clientId = Platform.OS === 'ios' ? GOOGLE_IOS_CLIENT_ID : GOOGLE_WEB_CLIENT_ID;
+
   const [request, response, promptAsync] = AuthSession.useAuthRequest({
-    clientId: Platform.OS === 'ios' ? GOOGLE_IOS_CLIENT_ID : GOOGLE_WEB_CLIENT_ID,
+    clientId,
     scopes: ['https://www.googleapis.com/auth/drive.appdata'],
     redirectUri,
-    responseType: AuthSession.ResponseType.Token,
-    usePKCE: false,
-  }, {
-    authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-  });
+    responseType: AuthSession.ResponseType.Code,
+    usePKCE: true,
+  }, discovery);
 
   useEffect(() => {
     // Check for stored token on mount
@@ -38,12 +44,27 @@ export const useGoogleDriveAuth = () => {
   }, []);
 
   useEffect(() => {
-    if (response?.type === 'success') {
-      const { access_token } = response.params;
-      setAccessToken(access_token);
-      SecureStore.setItemAsync(TOKEN_STORAGE_KEY, access_token).catch(console.error);
+    if (response?.type === 'success' && request?.codeVerifier) {
+      const { code } = response.params;
+      
+      AuthSession.exchangeCodeAsync({
+        clientId,
+        code,
+        redirectUri,
+        extraParams: {
+          code_verifier: request.codeVerifier,
+        }
+      }, discovery)
+      .then(tokenResult => {
+        const token = tokenResult.accessToken;
+        setAccessToken(token);
+        SecureStore.setItemAsync(TOKEN_STORAGE_KEY, token).catch(console.error);
+      })
+      .catch(err => {
+        console.error('Token exchange failed:', err);
+      });
     }
-  }, [response]);
+  }, [response, request]);
 
   const logout = async () => {
     setAccessToken(null);
