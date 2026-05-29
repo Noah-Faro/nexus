@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { encryptAESGCM, decryptAESGCM, deriveKeyFromPassword } from './security';
@@ -105,16 +105,17 @@ export async function importVaultBackup(fileUri: string, password: string): Prom
   }
 }
 
-export async function pickAndImportBackup(password: string): Promise<void> {
+export async function pickAndImportBackup(password: string): Promise<boolean> {
   const result = await DocumentPicker.getDocumentAsync({
     type: ['public.data', '*/*'],
     copyToCacheDirectory: true,
   });
 
   if (result.canceled || !result.assets || result.assets.length === 0) {
-    return;
+    return false;
   }
 
   const fileUri = result.assets[0].uri;
   await importVaultBackup(fileUri, password);
+  return true;
 }

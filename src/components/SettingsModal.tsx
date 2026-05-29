@@ -122,9 +122,13 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
     setBackupSuccess('');
     setIsProcessingBackup(true);
     try {
-      await pickAndImportBackup(backupPassword);
-      setBackupSuccess('Import successful! Restart app to apply.');
-      setBackupPassword('');
+      const imported = await pickAndImportBackup(backupPassword);
+      if (imported) {
+        setBackupSuccess('Import successful! Restart app to apply.');
+        setBackupPassword('');
+      } else {
+        setBackupError('Import cancelled: No file selected.');
+      }
     } catch (err: any) {
       setBackupError(err.message || 'Import failed');
     } finally {
