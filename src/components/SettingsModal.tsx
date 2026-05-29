@@ -435,8 +435,13 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                   {!accessToken ? (
                     <TouchableOpacity 
                       style={[styles.backupBtn, { marginTop: 12 }]} 
-                      onPress={() => promptAsync()}
-                      disabled={!request}
+                      onPress={() => {
+                        if (!request) {
+                          alert('Auth request is not ready yet. Please try again.');
+                          return;
+                        }
+                        promptAsync();
+                      }}
                     >
                       <Cloud size={18} color={theme.colors.background} />
                       <Text style={styles.backupBtnText}>Connect Google Drive</Text>
