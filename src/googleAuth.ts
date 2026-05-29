@@ -22,12 +22,9 @@ const discovery = {
 export const useGoogleDriveAuth = () => {
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: Platform.OS === 'ios'
-      ? `com.googleusercontent.apps.${GOOGLE_IOS_CLIENT_ID.split('.')[0]}`
-      : 'nexus',
-    path: 'oauth2redirect',
-  });
+  const redirectUri = Platform.OS === 'ios'
+    ? `com.googleusercontent.apps.${GOOGLE_IOS_CLIENT_ID.split('.')[0]}:/`
+    : AuthSession.makeRedirectUri({ scheme: 'nexus' });
 
   const clientId = Platform.OS === 'ios' ? GOOGLE_IOS_CLIENT_ID : GOOGLE_WEB_CLIENT_ID;
 
