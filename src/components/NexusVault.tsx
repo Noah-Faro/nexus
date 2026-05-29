@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Animated, PanResponder, KeyboardAvoidingView, Platform, Keyboard, TextInput } from 'react-native';
 import { Droplet, Dumbbell, DollarSign, BookOpen, Settings, ArrowUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -224,18 +224,31 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
     knowledge: new Animated.Value(0),
   }).current;
 
+  // Cleanup timer on unmount to prevent leaks
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+      }
+    };
+  }, []);
+
+  // Sync orderRef when order state changes
+  useEffect(() => {
+    orderRef.current = order;
+  }, [order]);
+
   useEffect(() => {
     orderRef.current.forEach((id, index) => {
       positionAnim[id].setValue(index * CARD_SIZE);
     });
   }, []);
 
-  const panResponders = useRef<Record<string, any>>({}).current;
-
-  if (Object.keys(panResponders).length === 0) {
+  const panResponders = useMemo(() => {
+    const responders: Record<string, any> = {};
     ['hydration', 'training', 'capital', 'knowledge'].forEach(id => {
       let startY = 0;
-      panResponders[id] = PanResponder.create({
+      responders[id] = PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderTerminationRequest: () => !isDraggingRef.current,
@@ -352,7 +365,8 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
         }
       });
     });
-  }
+    return responders;
+  }, []);
 
   useEffect(() => {
     const name = settings.userName ? settings.userName : '';
@@ -472,7 +486,7 @@ export default function NexusVault({ settings, onOpenSettings, onSelectApp, onSh
             </View>
             <View style={styles.diagRow}>
               <Text style={styles.diagLabel}>Storage</Text>
-              <Text style={styles.diagValue}>Encrypted Local</Text>
+              <Text style={styles.diagValue}>Device Storage</Text>
             </View>
             <View style={[styles.diagRow, { borderBottomWidth: 0 }]}>
               <Text style={styles.diagLabel}>History</Text>
@@ -655,7 +669,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: 'Outfit_700Bold',
     fontSize: 42,
     color: theme.colors.text,
     letterSpacing: 8, 
@@ -713,9 +727,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitle: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 18,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginBottom: 4,
   },
@@ -731,9 +744,8 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   diagTitle: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 15,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginBottom: 16,
   },
@@ -838,9 +850,8 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.md,
   },
   helpTitle: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 18,
-    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
   },
   helpCloseBtn: {
@@ -927,13 +938,6 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.sans,
     fontSize: 12,
     color: theme.colors.textMuted,
-  },
-  menuFooterBtnRow: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: theme.colors.border,
-    paddingTop: 12,
-    marginTop: 8,
-    alignItems: 'center',
   },
   menuToggleBtn: {
     backgroundColor: theme.colors.surface,

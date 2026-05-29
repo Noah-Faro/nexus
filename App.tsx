@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, SafeAreaView, Alert, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { StyleSheet, View, SafeAreaView, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { useFonts, Outfit_400Regular, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
@@ -7,6 +7,7 @@ import { useFonts, Outfit_400Regular, Outfit_600SemiBold, Outfit_700Bold } from 
 // Core imports
 import { theme } from './src/theme';
 import { DrinkLog, UserSettings, LiquidType, LIQUID_CONFIGS, LiquidConfig } from './src/types';
+import { generateId, parseTimeToDecimal } from './src/utils';
 import { 
   loadSettings, 
   saveSettings, 
@@ -28,27 +29,32 @@ import CalendarHeatmap from './src/components/CalendarHeatmap';
 import SettingsModal from './src/components/SettingsModal';
 import GoalModal from './src/components/GoalModal';
 import ConsoleHelpModal from './src/components/ConsoleHelpModal';
-import SilentLagBanner from './src/components/SilentLagBanner';
+import * as Notifications from 'expo-notifications';
 import AppAlertModal, { AppAlertButton } from './src/components/AppAlertModal';
 import NexusVault from './src/components/NexusVault';
 import BrewLabSheet from './src/components/BrewLabSheet';
 import TrainingApp from './src/components/TrainingApp';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 export default function App() {
   const [activeApp, setActiveApp] = useState<'vault' | 'hydration' | 'training'>('vault');
   const [activeView, setActiveView] = useState<'tracker' | 'stats' | 'calendar'>('tracker');
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [logs, setLogs] = useState<DrinkLog[]>([]);
-  const [selectedType, setSelectedType] = useState<LiquidType>('water');
+  const [selectedType, setSelectedType] = useState<string>('water');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [ironCommand, setIronCommand] = useState<string | undefined>(undefined);
   const [isLoggingExpanded, setIsLoggingExpanded] = useState(false); // Collapsed by default for easy log viewing
   const [goalModalVisible, setGoalModalVisible] = useState(false); // Custom celebration modal
   const [helpModalVisible, setHelpModalVisible] = useState(false); // Custom console help modal
   const [brewLabVisible, setBrewLabVisible] = useState(false); // Custom liquid synthesis bottom sheet
-  const [silentLagVisible, setSilentLagVisible] = useState(false);
-  const [lagMinutes, setLagMinutes] = useState(0);
-  const [deficitMl, setDeficitMl] = useState(0);
 
   const [decafPrefs, setDecafPrefs] = useState<Record<string, boolean>>({
     'tea': true,      // Tea defaults to decaf ON
@@ -75,7 +81,7 @@ export default function App() {
     const isDecaf = isDecafOverride !== undefined ? isDecafOverride : (decafPrefs[type] || false);
     
     // Check if settings exist, compute whether this drink achieves the daily goal
-    const config = LIQUID_CONFIGS[type] || settings?.customLiquids?.[type] || LIQUID_CONFIGS['water'];
+    const config = LIQUID_CONFIGS[type as LiquidType] || settings?.customLiquids?.[type] || LIQUID_CONFIGS['water'];
     const effectiveAmount = amount * config.multiplier;
     const currentProgress = getTodayProgress(logs, settings || DEFAULT_SETTINGS);
     const newEffective = currentProgress.totalEffective + effectiveAmount;
@@ -96,6 +102,11 @@ export default function App() {
       );
     }
   };
+
+  // Ref to track last lag notification timestamp
+  const lastLagNotificationTimeRef = useRef<number>(0);
+  // Ref to track last catchup timestamp (actual >= target)
+  const lastCatchupTimeRef = useRef<number>(0);
 
   // State for reusable custom app alerts
   const [alertConfig, setAlertConfig] = useState<{
@@ -140,6 +151,18 @@ export default function App() {
     initApp();
   }, []);
 
+  // Request notification permissions on app launch if notifications are enabled
+  useEffect(() => {
+    async function requestPermissions() {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== 'granted') {
+        await Notifications.requestPermissionsAsync();
+      }
+    }
+    if (settings?.lagNotificationsEnabled !== false) {
+      requestPermissions();
+    }
+  }, [settings?.lagNotificationsEnabled]);
   // Auto-collapse drink selection console when soft keyboard is opened to protect spacing (Instant slide)
   useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardWillShow', () => {
@@ -150,14 +173,27 @@ export default function App() {
     };
   }, []);
 
-  // Check dynamic hydration curve lagging duration in real time
+  // Check dynamic hydration curve lagging duration in real time and schedule native notifications
   useEffect(() => {
     if (!settings || !logs) return;
 
-    const parseTimeToDecimal = (timeStr: string): number => {
-      const [h, m] = timeStr.split(':').map(Number);
-      return h + (m / 60);
-    };
+    // 1. Cancel any previously scheduled lag notifications to avoid multiple triggers
+    Notifications.cancelAllScheduledNotificationsAsync().catch(err => {
+      console.log('Failed to cancel notifications:', err);
+    });
+
+    if (settings.lagNotificationsEnabled === false) {
+      return;
+    }
+
+    const progress = getTodayProgress(logs, settings);
+    const actual = progress.totalEffective;
+    const goal = progress.goal;
+
+    // If goal is already achieved, no notifications needed
+    if (actual >= goal) {
+      return;
+    }
 
     const wakeHour = parseTimeToDecimal(settings.wakeTime || '07:00');
     const sleepHour = parseTimeToDecimal(settings.sleepTime || '22:00');
@@ -179,59 +215,61 @@ export default function App() {
       if (currDecHour < wakeHour || currDecHour >= sleepHour) isSleeping = true;
     }
 
-    if (isSleeping) {
-      setSilentLagVisible(false);
-      return;
-    }
-
-    // Compute target vs actual
-    const progress = getTodayProgress(logs, settings);
-    const actual = progress.totalEffective;
-    const goal = progress.goal;
-
-    let target = 0;
-    if (sleepHour < wakeHour) {
-      if (currDecHour >= wakeHour) {
-        target = goal * ((currDecHour - wakeHour) / activeDuration);
-      } else if (currDecHour < sleepHour) {
-        target = goal * ((currDecHour + 24 - wakeHour) / activeDuration);
-      }
-    } else {
-      target = goal * ((currDecHour - wakeHour) / activeDuration);
-    }
-
-    if (actual >= target) {
-      setSilentLagVisible(false);
-      return;
-    }
-
     // Math Crossing point: t = wakeHour + (actual / goal) * activeDuration
     const t = wakeHour + (actual / goal) * activeDuration;
     
-    let elapsedHours = 0;
+    // The exact decimal hour of the day when the user will be exactly 30 minutes (0.5 hours) behind:
+    const T_trigger_dec = t + 0.5;
+
+    // Calculate trigger timestamp
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const T_trigger_timestamp = startOfToday.getTime() + T_trigger_dec * 60 * 60 * 1000;
+
+    // Schedule notification for the future:
+    // If they are already > 30 minutes behind, we schedule for 30 minutes in the future to allow an idle grace period.
+    // If they are ahead or < 30 minutes behind, we schedule for the exact millisecond they hit 30 minutes of lag.
+    const triggerTimeMs = Math.max(Date.now() + 30 * 60 * 1000, T_trigger_timestamp);
+
+    // Calculate water deficit at the trigger time
+    const ratePerHour = goal / activeDuration;
+    const deficitAtTrigger = Math.round(ratePerHour * 0.5);
+
+    // Check if sleep hours would intersect trigger time
+    const triggerDate = new Date(triggerTimeMs);
+    const triggerDecHour = triggerDate.getHours() + (triggerDate.getMinutes() / 60);
+    let triggerInsideSleep = false;
     if (sleepHour < wakeHour) {
-      const relCurr = currDecHour >= wakeHour ? currDecHour : currDecHour + 24;
-      const relT = Math.max(wakeHour, t);
-      elapsedHours = relCurr - relT;
+      if (triggerDecHour >= sleepHour && triggerDecHour < wakeHour) triggerInsideSleep = true;
     } else {
-      elapsedHours = currDecHour - Math.max(wakeHour, t);
+      if (triggerDecHour < wakeHour || triggerDecHour >= sleepHour) triggerInsideSleep = true;
     }
 
-    const elapsedMinutes = Math.max(0, elapsedHours * 60);
-    const deficit = Math.max(0, target - actual);
+    // Only schedule if the trigger time is outside sleeping hours and today
+    if (!triggerInsideSleep) {
+      const body = T_trigger_timestamp > Date.now()
+        ? `You are 30min behind schedule. Drink ${deficitAtTrigger}ml to catch up!`
+        : `You are still behind schedule. Drink some water to catch up!`;
 
-    // If lagging for more than 30 minutes, trigger the silent banner!
-    if (elapsedMinutes >= 30) {
-      setLagMinutes(elapsedMinutes);
-      setDeficitMl(deficit);
-      
-      const timer = setTimeout(() => {
-        setSilentLagVisible(true);
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else {
-      setSilentLagVisible(false);
+      Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Hydration Deficit Warning 💧',
+          body,
+          sound: true,
+        },
+        trigger: { date: triggerTimeMs, type: 'date' as any },
+      }).catch(err => {
+        console.log('Failed to schedule local notification:', err);
+      });
     }
+  }, [logs, settings]);
+
+  // Calculate today's current aggregates (unconditional hook execution order)
+  const todayProgress = getTodayProgress(logs, settings || DEFAULT_SETTINGS);
+
+  // Memoize aggregated progress for performance
+  const aggregatedProgress = useMemo(() => {
+    return getAggregatedProgress(logs, settings || DEFAULT_SETTINGS);
   }, [logs, settings]);
 
   if (!settings || !fontsLoaded) {
@@ -245,9 +283,6 @@ export default function App() {
       </View>
     );
   }
-
-  // Calculate today's current aggregates
-  const todayProgress = getTodayProgress(logs, settings);
 
   // Handle logging a drink
   const handleLogDrink = async (amount: number, isDecaf?: boolean, drinkType?: string) => {
@@ -272,35 +307,39 @@ export default function App() {
     }
 
     const newLog: DrinkLog = {
-      id: Math.random().toString(36).substring(2, 15) + Date.now().toString(36),
+      id: generateId(),
       timestamp: Date.now(),
       amount,
       type: typeToLog,
       tag: config.tag,
       effectiveAmount: amount * config.multiplier,
       caffeineMg,
-      isDecaf: !!isDecaf
+      isDecaf: !!isDecaf,
+      goalAtTimeOfLog: calculateGoal(settings)
     };
 
-    const updatedLogs = [newLog, ...logs];
-    setLogs(updatedLogs);
-    await saveLogs(updatedLogs);
+    setLogs(prevLogs => {
+      const updatedLogs = [newLog, ...prevLogs];
+      saveLogs(updatedLogs);
 
-    // Subtle compliance check alert
-    const newProgress = getTodayProgress(updatedLogs, settings);
-    const newPercent = Math.round((newProgress.totalEffective / newProgress.goal) * 100);
-    const oldPercent = Math.round((todayProgress.totalEffective / todayProgress.goal) * 100);
-    
-    if (newPercent >= 100 && oldPercent < 100) {
-      // Trigger exactly three distinct haptic touches when goal is completed
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 120);
-      setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 240);
+      // Subtle compliance check alert using non-stale prevLogs
+      const newProgress = getTodayProgress(updatedLogs, settings);
+      const newPercent = Math.round((newProgress.totalEffective / newProgress.goal) * 100);
+      
+      const oldProgress = getTodayProgress(prevLogs, settings);
+      const oldPercent = Math.round((oldProgress.totalEffective / oldProgress.goal) * 100);
+            if (newPercent >= 100 && oldPercent < 100) {
+        // Trigger exactly three distinct haptic touches when goal is completed
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 120);
+        setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium), 240);
 
-      // Open custom Obsidian-themed celebration modal
-      setGoalModalVisible(true);
-    }
+        // Open custom Obsidian-themed celebration modal
+        setGoalModalVisible(true);
+      }
+      return updatedLogs;
+    });
   };
 
   // Handle deleting a logged drink
@@ -470,7 +509,7 @@ export default function App() {
               );
             }}
             onUpdateSettings={handleSaveSettings}
-            activeDaysCount={Object.keys(getAggregatedProgress(logs, settings)).filter(k => getAggregatedProgress(logs, settings)[k].logs.length > 0).length}
+            activeDaysCount={Object.keys(aggregatedProgress).filter(k => aggregatedProgress[k].logs.length > 0).length}
             onLogDrinkDirect={handleVaultLogDrink}
           />
         ) : activeApp === 'training' ? (
@@ -499,7 +538,6 @@ export default function App() {
                   style={styles.trackerContainer}
                   keyboardVerticalOffset={Platform.OS === 'ios' ? 135 : 0}
                 >
-                  {/* Daily log scroll checklist */}
                   {/* Daily log scroll checklist */}
                   <DailyNoteView 
                     progress={todayProgress} 
@@ -574,12 +612,6 @@ export default function App() {
           onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
         />
 
-        <SilentLagBanner 
-          visible={silentLagVisible}
-          onClose={() => setSilentLagVisible(false)}
-          lagMinutes={lagMinutes}
-          deficitMl={deficitMl}
-        />
 
         <BrewLabSheet 
           visible={brewLabVisible}

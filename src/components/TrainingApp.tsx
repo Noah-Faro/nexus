@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, SafeAreaView, Platform, KeyboardAvoidingView, Alert, Modal } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Play, RotateCcw, Clock, ArrowLeft, BarChart2, List, Plus, Settings, Edit2 } from 'lucide-react-native';
+import { Play, ChevronLeft, BarChart2, List, Plus, Settings, Edit2 } from 'lucide-react-native';
 import { theme } from '../theme';
-import { WorkoutTemplate, WorkoutSession, LoggedSet, Exercise, TemplateExercise } from '../trainingTypes';
+import { WorkoutTemplate, WorkoutSession, Exercise, ExerciseDefaults } from '../trainingTypes';
+import { generateId } from '../utils';
 import { EXERCISE_LIBRARY } from '../exerciseLibrary';
-import { loadTemplates, saveTemplates, loadWorkoutSessions, saveWorkoutSessions, loadCustomExercises, loadExerciseDefaults } from '../trainingStorage';
+import { loadTemplates, saveTemplates, loadWorkoutSessions, saveWorkoutSessions, loadCustomExercises, loadExerciseDefaults, loadActiveSession, saveActiveSession } from '../trainingStorage';
 
 import TrainingSessionView from './TrainingSessionView';
 import TrainingHistory from './TrainingHistory';
 import TrainingDashboard from './TrainingDashboard';
 import TrainingSettings from './TrainingSettings';
 import TemplateEditorSheet from './TemplateEditorSheet';
+import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 
 // Child components we'll build later
 // import TemplateList from './TemplateList';
@@ -25,7 +27,7 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
   const [activeView, setActiveView] = useState<'home' | 'session' | 'history' | 'dashboard'>('home');
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
-  const [exerciseDefaults, setExerciseDefaults] = useState<Record<string, { defaultWeight: number, defaultReps: number }>>({});
+  const [exerciseDefaults, setExerciseDefaults] = useState<Record<string, ExerciseDefaults>>({});
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [templateEditorVisible, setTemplateEditorVisible] = useState(false);
@@ -33,25 +35,51 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
   
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
 
+  // Custom alert modal state
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: AppAlertButton[];
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: []
+  });
+
+  const triggerAlert = (title: string, message: string, buttons?: AppAlertButton[]) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }]
+    });
+  };
+
   useEffect(() => {
     async function loadData() {
       const loadedTemplates = await loadTemplates();
+      const loadedSessions = await loadWorkoutSessions();
       setTemplates(loadedTemplates);
-      setSessions(await loadWorkoutSessions());
+      setSessions(loadedSessions);
       setCustomExercises(await loadCustomExercises());
       setExerciseDefaults(await loadExerciseDefaults());
       
-      // Handle initialCommand after loading templates
-      if (initialCommand) {
+      const cachedSession = await loadActiveSession();
+      if (cachedSession && !cachedSession.endTime) {
+        setActiveSession(cachedSession);
+        setActiveView('session');
+      } else if (initialCommand) {
         if (initialCommand === 'history') {
           setActiveView('history');
         } else if (initialCommand.startsWith('start ')) {
           const tName = initialCommand.substring(6).toLowerCase();
           const found = loadedTemplates.find(t => t.name.toLowerCase() === tName);
           if (found) {
-            handleStartSession(found);
+            handleStartSession(found, loadedSessions.length);
           } else {
-            Alert.alert("Template Not Found", `Could not find template matching "${tName}"`);
+            triggerAlert("Template Not Found", `Could not find template matching "${tName}"`);
           }
         }
       }
@@ -59,22 +87,24 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
     loadData();
   }, [initialCommand]);
 
-  const handleStartSession = (template: WorkoutTemplate) => {
+  const handleStartSession = (template: WorkoutTemplate, customSessionCount?: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const count = customSessionCount !== undefined ? customSessionCount : sessions.length;
     const newSession: WorkoutSession = {
-      id: Math.random().toString(36).substring(2, 15) + Date.now().toString(36),
+      id: generateId(),
       templateId: template.id,
       templateName: template.name,
       startTime: Date.now(),
       sets: [],
       totalVolume: 0,
-      sessionNumber: sessions.length + 1
+      sessionNumber: count + 1
     };
     setActiveSession(newSession);
     setActiveView('session');
   };
 
-  const handleFinishSession = async (sessionToSave: WorkoutSession) => {
+  const handleFinishSession = async (rawSession: WorkoutSession) => {
+    const sessionToSave = { ...rawSession };
     if (!sessionToSave.endTime) {
       sessionToSave.endTime = Date.now();
       sessionToSave.durationMinutes = Math.round((sessionToSave.endTime - sessionToSave.startTime) / 60000);
@@ -89,15 +119,21 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
     const newSessions = [sessionToSave, ...dedupedSessions];
     
     setSessions(newSessions);
-    await saveWorkoutSessions(newSessions);
+    try {
+      await saveWorkoutSessions(newSessions);
+    } catch (e) {
+      console.error("Failed to save session", e);
+      triggerAlert("Save Error", "Could not save workout session to device storage.");
+    }
 
+    await saveActiveSession(null);
     setActiveSession(null);
     setActiveView('home');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const cancelSession = () => {
-    Alert.alert(
+    triggerAlert(
       "Cancel Session?",
       "Are you sure you want to discard this session?",
       [
@@ -105,7 +141,8 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
         { 
           text: "Yes, Discard", 
           style: "destructive", 
-          onPress: () => {
+          onPress: async () => {
+            await saveActiveSession(null);
             setActiveSession(null);
             setActiveView('home');
           }
@@ -124,16 +161,24 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
     } else {
       updatedTemplates = [...templates, template];
     }
-    // We don't have a saveTemplates function in trainingStorage.ts yet, but let's assume it or use AsyncStorage directly here for simplicity, or just update state for now.
-    // Wait, let's just update state, and we can add saveTemplates to trainingStorage.ts later if needed.
     setTemplates(updatedTemplates);
-    await saveTemplates(updatedTemplates);
+    try {
+      await saveTemplates(updatedTemplates);
+    } catch (e) {
+      console.error("Failed to save template", e);
+      triggerAlert("Save Error", "Could not save workout template.");
+    }
   };
 
   const handleDeleteTemplate = async (id: string) => {
     const updatedTemplates = templates.filter(t => t.id !== id);
     setTemplates(updatedTemplates);
-    await saveTemplates(updatedTemplates);
+    try {
+      await saveTemplates(updatedTemplates);
+    } catch (e) {
+      console.error("Failed to delete template", e);
+      triggerAlert("Delete Error", "Could not delete workout template.");
+    }
   };
 
   const renderHome = () => (
@@ -193,7 +238,12 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
   const handleDeleteSession = async (sessionId: string) => {
     const updated = sessions.filter(s => s.id !== sessionId);
     setSessions(updated);
-    await saveWorkoutSessions(updated);
+    try {
+      await saveWorkoutSessions(updated);
+    } catch (e) {
+      console.error("Failed to delete session", e);
+      triggerAlert("Delete Error", "Could not delete workout session.");
+    }
   };
 
   return (
@@ -201,12 +251,20 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => {
           if (activeView === 'session') {
-            Alert.alert(
-              "Discard Session?",
-              "Are you sure you want to discard this workout? All progress will be lost.",
+            triggerAlert(
+              "Exit Workout?",
+              "Are you sure you want to exit? This will discard your current workout progress.",
               [
                 { text: "Cancel", style: "cancel" },
-                { text: "Discard", style: "destructive", onPress: () => { setActiveSession(null); setActiveView('home'); } }
+                {
+                  text: "Exit & Discard",
+                  style: "destructive",
+                  onPress: async () => {
+                    await saveActiveSession(null);
+                    setActiveSession(null);
+                    setActiveView('home');
+                  }
+                }
               ]
             );
           } else if (activeView === 'home') {
@@ -214,21 +272,26 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
           } else {
             setActiveView('home');
           }
-        }}>
-          <ArrowLeft size={24} color={theme.colors.text} />
+        }} activeOpacity={0.7}>
+          <ChevronLeft size={28} color={theme.colors.accent} style={{ marginLeft: -8 }} />
+          <Text style={styles.backText}>
+            {activeView === 'home' ? 'Vault' : 'Back'}
+          </Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {activeView === 'home' ? 'NEXUS.Iron' : 
+        
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {activeView === 'home' ? 'Training' : 
            activeView === 'session' ? activeSession?.templateName : 
            activeView === 'history' ? 'History' : 'Progress'}
         </Text>
-        <View style={{ width: 60, alignItems: 'flex-end' }}>
-          {activeView === 'home' && (
-            <TouchableOpacity onPress={() => setSettingsVisible(true)}>
-              <Settings size={24} color={theme.colors.textMuted} />
-            </TouchableOpacity>
-          )}
-        </View>
+
+        {activeView === 'home' ? (
+          <TouchableOpacity style={styles.settingsBtn} onPress={() => setSettingsVisible(true)} activeOpacity={0.7}>
+            <Settings size={22} color={theme.colors.accent} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
       </View>
       
       {activeView === 'home' && renderHome()}
@@ -241,6 +304,7 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
            history={sessions}
            onFinishSession={handleFinishSession}
            onCustomExercisesChange={setCustomExercises}
+           triggerAlert={triggerAlert}
          />
       )}
       {activeView === 'history' && (
@@ -252,6 +316,7 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
              setActiveView('session');
            }}
            customExercises={customExercises}
+           triggerAlert={triggerAlert}
          />
       )}
       {activeView === 'dashboard' && (
@@ -283,6 +348,14 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
           onCustomExercisesChange={setCustomExercises}
         />
       )}
+
+      <AppAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }
@@ -296,22 +369,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: 16,
+    paddingTop: theme.spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.border,
   },
   backBtn: {
-    width: 60,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  backText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 17,
+    color: theme.colors.accent,
+    marginLeft: -4,
   },
   headerTitle: {
-    fontFamily: 'Outfit_600SemiBold',
-    fontSize: 20,
+    fontFamily: theme.typography.bold,
+    fontSize: 18,
     color: theme.colors.text,
-    letterSpacing: 2,
+    textAlign: 'center',
+    flex: 2,
+  },
+  settingsBtn: {
+    flex: 1,
+    alignItems: 'flex-end',
   },
   content: {
     flex: 1,

@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Switch, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
-import { X, Check } from 'lucide-react-native';
+import { X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { UserSettings } from '../types';
+import SegmentedControl from './SegmentedControl';
 import { calculateGoal } from '../storage';
+import { exportVaultBackup, pickAndImportBackup } from '../backup';
+import { Lock, Download, UploadCloud } from 'lucide-react-native';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -22,9 +25,31 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
   const [customGoal, setCustomGoal] = useState(String(settings.customGoal || 2500));
   const [wakeTime, setWakeTime] = useState(settings.wakeTime || '07:00');
   const [sleepTime, setSleepTime] = useState(settings.sleepTime || '22:00');
-  const [hapticRemindersEnabled, setHapticRemindersEnabled] = useState(settings.hapticRemindersEnabled !== false);
+  const [lagNotificationsEnabled, setLagNotificationsEnabled] = useState(settings.lagNotificationsEnabled !== false);
   const [wakeError, setWakeError] = useState(false);
   const [sleepError, setSleepError] = useState(false);
+
+  // Backup State
+  const [backupPassword, setBackupPassword] = useState('');
+  const [backupError, setBackupError] = useState('');
+  const [backupSuccess, setBackupSuccess] = useState('');
+  const [isProcessingBackup, setIsProcessingBackup] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setUserName(settings.userName || '');
+      setWeight(String(settings.weight));
+      setWeightUnit(settings.weightUnit);
+      setActivityLevel(settings.activityLevel);
+      setUseAutoGoal(settings.useAutoGoal);
+      setCustomGoal(String(settings.customGoal || 2500));
+      setWakeTime(settings.wakeTime || '07:00');
+      setSleepTime(settings.sleepTime || '22:00');
+      setLagNotificationsEnabled(settings.lagNotificationsEnabled !== false);
+      setWakeError(false);
+      setSleepError(false);
+    }
+  }, [visible, settings]);
 
   const handleSave = () => {
     const timeRegex = /^(0[0-9]|1[0-9]|2[0-3]|[0-9]):[0-5][0-9]$/;
@@ -49,7 +74,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
       customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
       wakeTime: wakeTime.trim(),
       sleepTime: sleepTime.trim(),
-      hapticRemindersEnabled,
+      lagNotificationsEnabled,
     };
     onSave(updatedSettings);
     onClose();
@@ -65,9 +90,47 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
     customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
     wakeTime: wakeTime.trim() || '07:00',
     sleepTime: sleepTime.trim() || '22:00',
-    hapticRemindersEnabled,
+    lagNotificationsEnabled,
   };
   const computedGoal = calculateGoal(tempSettings);
+
+  const handleExport = async () => {
+    if (!backupPassword || backupPassword.length < 4) {
+      setBackupError('Password must be at least 4 characters');
+      return;
+    }
+    setBackupError('');
+    setBackupSuccess('');
+    setIsProcessingBackup(true);
+    try {
+      await exportVaultBackup(backupPassword);
+      setBackupSuccess('Export successful!');
+      setBackupPassword('');
+    } catch (err: any) {
+      setBackupError(err.message || 'Export failed');
+    } finally {
+      setIsProcessingBackup(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!backupPassword || backupPassword.length < 4) {
+      setBackupError('Password required to import');
+      return;
+    }
+    setBackupError('');
+    setBackupSuccess('');
+    setIsProcessingBackup(true);
+    try {
+      await pickAndImportBackup(backupPassword);
+      setBackupSuccess('Import successful! Restart app to apply.');
+      setBackupPassword('');
+    } catch (err: any) {
+      setBackupError(err.message || 'Import failed');
+    } finally {
+      setIsProcessingBackup(false);
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
@@ -75,7 +138,10 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
         <View style={styles.modalContent}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Settings</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <TouchableOpacity onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onClose();
+            }} style={styles.closeButton}>
               <View style={styles.closeIconBg}>
                 <X size={20} color={theme.colors.text} />
               </View>
@@ -113,19 +179,12 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                     placeholderTextColor={theme.colors.textSubtle}
                     returnKeyType="done"
                   />
-                  <View style={styles.unitToggle}>
-                    <TouchableOpacity
-                      style={[styles.unitBtn, weightUnit === 'kg' && styles.unitBtnActive]}
-                      onPress={() => setWeightUnit('kg')}
-                    >
-                      <Text style={[styles.unitBtnText, weightUnit === 'kg' && styles.unitBtnTextActive]}>kg</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.unitBtn, weightUnit === 'lbs' && styles.unitBtnActive]}
-                      onPress={() => setWeightUnit('lbs')}
-                    >
-                      <Text style={[styles.unitBtnText, weightUnit === 'lbs' && styles.unitBtnTextActive]}>lbs</Text>
-                    </TouchableOpacity>
+                  <View style={{ width: 100 }}>
+                    <SegmentedControl
+                      values={['kg', 'lbs'] as const}
+                      selectedValue={weightUnit}
+                      onChange={setWeightUnit}
+                    />
                   </View>
                 </View>
               </View>
@@ -134,19 +193,12 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
 
               <View style={styles.rowVertical}>
                 <Text style={styles.label}>Activity Level</Text>
-                <View style={styles.segmentedControl}>
-                  {(['sedentary', 'moderate', 'active'] as const).map((level) => (
-                    <TouchableOpacity
-                      key={level}
-                      style={[styles.segmentBtn, activityLevel === level && styles.segmentBtnActive]}
-                      onPress={() => setActivityLevel(level)}
-                    >
-                      <Text style={[styles.segmentBtnText, activityLevel === level && styles.segmentBtnTextActive]}>
-                        {level.charAt(0).toUpperCase() + level.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <SegmentedControl
+                  values={['sedentary', 'moderate', 'active'] as const}
+                  selectedValue={activityLevel}
+                  onChange={setActivityLevel}
+                  labels={['Sedentary', 'Moderate', 'Active']}
+                />
               </View>
             </View>
 
@@ -162,7 +214,10 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                 </View>
                 <Switch
                   value={useAutoGoal}
-                  onValueChange={setUseAutoGoal}
+                  onValueChange={(val) => {
+                    setUseAutoGoal(val);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
                   trackColor={{ false: theme.colors.surface, true: '#34C759' }}
                   ios_backgroundColor={theme.colors.surface}
                 />
@@ -241,19 +296,70 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                 <Text style={styles.errorText}>Please enter a valid 24h format (e.g., 23:15)</Text>
               )}
 
-              <View style={styles.divider} />
-
               <View style={styles.row}>
                 <View style={styles.textStack}>
-                  <Text style={styles.label}>Haptic Reminders</Text>
-                  <Text style={styles.subtext}>Tactile alert when lagging behind curve</Text>
+                   <Text style={styles.label}>Lag Notifications</Text>
+                   <Text style={styles.subtext}>Receive system notifications when falling behind your hydration schedule</Text>
                 </View>
                 <Switch
-                  value={hapticRemindersEnabled}
-                  onValueChange={setHapticRemindersEnabled}
+                  value={lagNotificationsEnabled}
+                  onValueChange={(val) => {
+                    setLagNotificationsEnabled(val);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
                   trackColor={{ false: theme.colors.surface, true: '#34C759' }}
                   ios_backgroundColor={theme.colors.surface}
                 />
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Data Vault (Local-First)</Text>
+              </View>
+              
+              <View style={[styles.rowVertical, { paddingBottom: 8 }]}>
+                <Text style={styles.subtext}>
+                  Export or import your entire NEXUS state as an AES-256-GCM encrypted .nexus bundle. 
+                  Provide a password to secure your export or decrypt an import.
+                </Text>
+                
+                <View style={styles.passwordContainer}>
+                  <Lock size={16} color={theme.colors.textSubtle} style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={backupPassword}
+                    onChangeText={(t) => { setBackupPassword(t); setBackupError(''); setBackupSuccess(''); }}
+                    placeholder="Encryption Password"
+                    placeholderTextColor={theme.colors.textSubtle}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+
+                {!!backupError && <Text style={styles.errorText}>{backupError}</Text>}
+                {!!backupSuccess && <Text style={[styles.errorText, { color: theme.colors.accentGreen }]}>{backupSuccess}</Text>}
+
+                <View style={styles.backupButtonsRow}>
+                  <TouchableOpacity 
+                    style={[styles.backupBtn, isProcessingBackup && { opacity: 0.5 }]} 
+                    onPress={handleExport}
+                    disabled={isProcessingBackup}
+                  >
+                    <UploadCloud size={18} color={theme.colors.background} />
+                    <Text style={styles.backupBtnText}>Export</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.backupBtn, styles.backupBtnSecondary, isProcessingBackup && { opacity: 0.5 }]} 
+                    onPress={handleImport}
+                    disabled={isProcessingBackup}
+                  >
+                    <Download size={18} color={theme.colors.text} />
+                    <Text style={[styles.backupBtnText, { color: theme.colors.text }]}>Import</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           </ScrollView>
@@ -292,9 +398,8 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   headerTitle: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 18,
-    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
   },
   closeButton: {
@@ -322,11 +427,11 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   cardTitle: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 13,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.textMuted,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   row: {
     flexDirection: 'row',
@@ -391,9 +496,8 @@ const styles = StyleSheet.create({
     minWidth: 100,
   },
   calculatedGoal: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 17,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.textMuted,
   },
   unitToggle: {
@@ -469,9 +573,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   saveBtnText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 17,
-    fontWeight: theme.typography.weight.bold,
     color: '#000000',
   },
   inputError: {
@@ -485,5 +588,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingBottom: 8,
     marginTop: -4,
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
+  },
+  passwordInput: {
+    flex: 1,
+    fontFamily: theme.typography.sans,
+    fontSize: 15,
+    color: theme.colors.text,
+  },
+  backupButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  backupBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: theme.colors.text,
+    paddingVertical: 12,
+    borderRadius: theme.borderRadius.md,
+  },
+  backupBtnSecondary: {
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  backupBtnText: {
+    fontFamily: theme.typography.semibold,
+    fontSize: 15,
+    color: '#000',
   },
 });

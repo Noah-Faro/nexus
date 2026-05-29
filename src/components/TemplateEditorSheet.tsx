@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { X, Save, Plus, ChevronUp, ChevronDown, Trash2 } from 'lucide-react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { X, Plus, ChevronUp, ChevronDown, Trash2 } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { WorkoutTemplate, TemplateExercise, Exercise } from '../trainingTypes';
+import { generateId, getExerciseById } from '../utils';
 import { EXERCISE_LIBRARY } from '../exerciseLibrary';
 import ExercisePickerModal from './ExercisePickerModal';
+import StepperInput from './StepperInput';
+import SheetHeader from './SheetHeader';
+import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 
 interface TemplateEditorSheetProps {
   visible: boolean;
@@ -24,6 +29,28 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
   const [exercises, setExercises] = useState<TemplateExercise[]>(template?.exercises || []);
   const [pickerVisible, setPickerVisible] = useState(false);
 
+  // Local alert modal state
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: AppAlertButton[];
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: []
+  });
+
+  const triggerAlert = (title: string, message: string, buttons?: AppAlertButton[]) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }]
+    });
+  };
+
   // Reset state when a new template is passed
   React.useEffect(() => {
     if (visible) {
@@ -38,9 +65,23 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
   };
 
   const handleRemoveExercise = (index: number) => {
-    const updated = [...exercises];
-    updated.splice(index, 1);
-    setExercises(updated);
+    const exDef = getExerciseById(exercises[index].exerciseId, customExercises);
+    triggerAlert(
+      "Remove Exercise?",
+      `Remove "${exDef?.name || 'this exercise'}" from the template?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            const updated = [...exercises];
+            updated.splice(index, 1);
+            setExercises(updated);
+          }
+        }
+      ]
+    );
   };
 
   const handleMoveExercise = (index: number, direction: number) => {
@@ -62,16 +103,17 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
 
   const handleSave = () => {
     if (!name.trim()) {
-      Alert.alert("Missing Name", "Please enter a template name.");
+      triggerAlert("Missing Name", "Please enter a template name.");
       return;
     }
     if (exercises.length === 0) {
-      Alert.alert("No Exercises", "Please add at least one exercise.");
+      triggerAlert("No Exercises", "Please add at least one exercise.");
       return;
     }
     
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onSave({
-      id: template?.id || Math.random().toString(36).substring(2, 15),
+      id: template?.id || generateId(),
       name: name.trim(),
       color,
       exercises
@@ -82,15 +124,18 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{template ? 'Edit Template' : 'New Template'}</Text>
-          <View style={styles.headerRight}>
-            {template && onDelete && (
+        <SheetHeader
+          title={template ? 'Edit Template' : 'New Template'}
+          onClose={onClose}
+          leftAction={
+            <TouchableOpacity onPress={onClose} style={styles.deleteHeaderBtn} activeOpacity={0.7}>
+              <X size={20} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          }
+          rightAction={
+            template && onDelete ? (
               <TouchableOpacity onPress={() => {
-                Alert.alert(
+                triggerAlert(
                   "Delete Template",
                   "Are you sure you want to delete this workout template?",
                   [
@@ -98,15 +143,12 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
                     { text: "Delete", style: "destructive", onPress: () => { onDelete(template.id); onClose(); } }
                   ]
                 );
-              }} style={[styles.headerBtn, { marginRight: 16 }]}>
-                <Trash2 size={20} color="#ff453a" />
+              }} style={styles.deleteHeaderBtn} activeOpacity={0.7}>
+                <Trash2 size={20} color={theme.colors.accentRed} />
               </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={handleSave} style={styles.headerBtn}>
-              <Text style={styles.saveText}>Save</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+            ) : null
+          }
+        />
 
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <View style={styles.section}>
@@ -136,11 +178,11 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
           <View style={styles.section}>
             <Text style={styles.label}>EXERCISES</Text>
             {exercises.map((tEx, index) => {
-              const exDef = EXERCISE_LIBRARY[tEx.exerciseId] || customExercises.find(c => c.id === tEx.exerciseId);
+              const exDef = getExerciseById(tEx.exerciseId, customExercises);
               if (!exDef) return null;
 
               return (
-                <View key={index} style={styles.exerciseCard}>
+                <View key={`${tEx.exerciseId}-${index}`} style={styles.exerciseCard}>
                   <View style={styles.exHeaderRow}>
                     <Text style={styles.exName}>{exDef.name}</Text>
                     <View style={styles.exActions}>
@@ -155,7 +197,7 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
                         </TouchableOpacity>
                       )}
                       <TouchableOpacity onPress={() => handleRemoveExercise(index)} style={styles.actionBtn}>
-                        <Trash2 size={20} color="#ff453a" />
+                        <Trash2 size={20} color={theme.colors.accentRed} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -163,28 +205,20 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
                   <View style={styles.pickersRow}>
                     <View style={styles.pickerGroup}>
                       <Text style={styles.pickerLabel}>Sets</Text>
-                      <View style={styles.stepper}>
-                        <TouchableOpacity style={styles.stepperBtn} onPress={() => updateTarget(index, 'targetSets', -1)}>
-                          <Text style={styles.stepperBtnText}>-</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.stepperValue}>{tEx.targetSets}</Text>
-                        <TouchableOpacity style={styles.stepperBtn} onPress={() => updateTarget(index, 'targetSets', 1)}>
-                          <Text style={styles.stepperBtnText}>+</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <StepperInput
+                        value={tEx.targetSets}
+                        onChange={(val) => updateTarget(index, 'targetSets', val - tEx.targetSets)}
+                        min={1}
+                      />
                     </View>
 
                     <View style={styles.pickerGroup}>
                       <Text style={styles.pickerLabel}>Reps</Text>
-                      <View style={styles.stepper}>
-                        <TouchableOpacity style={styles.stepperBtn} onPress={() => updateTarget(index, 'targetReps', -1)}>
-                          <Text style={styles.stepperBtnText}>-</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.stepperValue}>{tEx.targetReps}</Text>
-                        <TouchableOpacity style={styles.stepperBtn} onPress={() => updateTarget(index, 'targetReps', 1)}>
-                          <Text style={styles.stepperBtnText}>+</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <StepperInput
+                        value={tEx.targetReps}
+                        onChange={(val) => updateTarget(index, 'targetReps', val - tEx.targetReps)}
+                        min={1}
+                      />
                     </View>
                   </View>
                 </View>
@@ -197,6 +231,18 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
             </TouchableOpacity>
           </View>
         </ScrollView>
+        <View style={styles.footer}>
+          <TouchableOpacity 
+            style={[styles.saveBtn, { backgroundColor: name.trim() && exercises.length > 0 ? theme.colors.text : theme.colors.surfaceElevated }]} 
+            onPress={handleSave}
+            disabled={!name.trim() || exercises.length === 0}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.saveBtnText, { color: name.trim() && exercises.length > 0 ? '#000000' : theme.colors.textSubtle }]}>
+              Save Template
+            </Text>
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
 
       <ExercisePickerModal
@@ -205,6 +251,14 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
         onSelect={handleAddExercise}
         customExercises={customExercises}
         onCustomExercisesChange={onCustomExercisesChange}
+      />
+
+      <AppAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
       />
     </Modal>
   );
@@ -234,12 +288,12 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     fontFamily: theme.typography.sans,
-    color: '#ff453a',
+    color: theme.colors.accentRed,
     fontSize: 16,
   },
   saveText: {
     fontFamily: 'Outfit_600SemiBold',
-    color: '#32d74b',
+    color: theme.colors.accent,
     fontSize: 16,
     textAlign: 'right',
   },
@@ -247,6 +301,28 @@ const styles = StyleSheet.create({
     fontFamily: 'Outfit_600SemiBold',
     fontSize: 16,
     color: theme.colors.text,
+  },
+  footer: {
+    padding: theme.spacing.lg,
+    paddingBottom: 40,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.background,
+  },
+  saveBtn: {
+    paddingVertical: 16,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveBtnText: {
+    fontFamily: 'Outfit_600SemiBold',
+    fontSize: 17,
+  },
+  deleteHeaderBtn: {
+    padding: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scroll: {
     flex: 1,
@@ -339,7 +415,7 @@ const styles = StyleSheet.create({
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3a3a3c',
+    backgroundColor: theme.colors.surfaceSecondary,
     borderRadius: 6,
   },
   stepperBtnText: {
@@ -360,7 +436,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: 12,
+    borderRadius: theme.borderRadius.md,
     marginTop: 8,
     borderWidth: 1,
     borderColor: theme.colors.border,

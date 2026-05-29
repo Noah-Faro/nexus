@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DrinkLog, UserSettings, DayProgress, LiquidType, LIQUID_CONFIGS } from './types';
+import { DrinkLog, UserSettings, DayProgress } from './types';
+import { loadFromStorage, saveToStorage } from './utils';
 
 const SETTINGS_KEY = '@obsidian_water_tracker_settings';
 const LOGS_KEY = '@obsidian_water_tracker_logs';
@@ -18,6 +18,12 @@ export const DEFAULT_SETTINGS: UserSettings = {
   hapticRemindersEnabled: true,
 };
 
+export const ACTIVITY_HYDRATION_MULTIPLIERS = {
+  sedentary: 1.0,
+  moderate: 1.15,
+  active: 1.3,
+} as const;
+
 // Calculate goal dynamically based on weight and activity level
 export function calculateGoal(settings: UserSettings): number {
   if (!settings.useAutoGoal && settings.customGoal !== null) {
@@ -33,58 +39,27 @@ export function calculateGoal(settings: UserSettings): number {
   let baseHydration = weightInKg * 35;
 
   // Adjust for activity level
-  if (settings.activityLevel === 'sedentary') {
-    baseHydration *= 1.0;
-  } else if (settings.activityLevel === 'moderate') {
-    baseHydration *= 1.15;
-  } else if (settings.activityLevel === 'active') {
-    baseHydration *= 1.3;
-  }
+  const multiplier = ACTIVITY_HYDRATION_MULTIPLIERS[settings.activityLevel] || 1.0;
+  baseHydration *= multiplier;
 
   // Round to nearest 50ml for neatness
   return Math.round(baseHydration / 50) * 50;
 }
 
 export async function loadSettings(): Promise<UserSettings> {
-  try {
-    const jsonValue = await AsyncStorage.getItem(SETTINGS_KEY);
-    if (jsonValue !== null) {
-      return JSON.parse(jsonValue);
-    }
-  } catch (e) {
-    console.error('Failed to load settings from storage', e);
-  }
-  return DEFAULT_SETTINGS;
+  return loadFromStorage<UserSettings>(SETTINGS_KEY, DEFAULT_SETTINGS);
 }
 
 export async function saveSettings(settings: UserSettings): Promise<void> {
-  try {
-    const jsonValue = JSON.stringify(settings);
-    await AsyncStorage.setItem(SETTINGS_KEY, jsonValue);
-  } catch (e) {
-    console.error('Failed to save settings to storage', e);
-  }
+  return saveToStorage<UserSettings>(SETTINGS_KEY, settings);
 }
 
 export async function loadLogs(): Promise<DrinkLog[]> {
-  try {
-    const jsonValue = await AsyncStorage.getItem(LOGS_KEY);
-    if (jsonValue !== null) {
-      return JSON.parse(jsonValue);
-    }
-  } catch (e) {
-    console.error('Failed to load logs from storage', e);
-  }
-  return [];
+  return loadFromStorage<DrinkLog[]>(LOGS_KEY, []);
 }
 
 export async function saveLogs(logs: DrinkLog[]): Promise<void> {
-  try {
-    const jsonValue = JSON.stringify(logs);
-    await AsyncStorage.setItem(LOGS_KEY, jsonValue);
-  } catch (e) {
-    console.error('Failed to save logs to storage', e);
-  }
+  return saveToStorage<DrinkLog[]>(LOGS_KEY, logs);
 }
 
 // Utility to get Date string YYYY-MM-DD from timestamp

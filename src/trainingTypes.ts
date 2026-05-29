@@ -53,4 +53,5 @@ export interface WorkoutSession {
 export interface ExerciseDefaults {
   defaultWeight: number;
   defaultReps: number;
+  weightUnit?: 'kg' | 'lbs';
 }

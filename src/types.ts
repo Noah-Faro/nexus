@@ -7,6 +7,7 @@ export interface DrinkLog {
   effectiveAmount: number; // amount * multiplier
   caffeineMg?: number; // Caffeine content in mg
   isDecaf?: boolean;   // Optional decaf flag
+  goalAtTimeOfLog?: number; // Snapshot of daily goal when log was created
 }
 
 export interface UserSettings {
@@ -21,10 +22,11 @@ export interface UserSettings {
   wakeTime?: string;          // Wakeup time in "HH:MM", default "07:00"
   sleepTime?: string;         // Sleep time in "HH:MM", default "22:00"
   hapticRemindersEnabled?: boolean; // toggle smart reminders
+  lagNotificationsEnabled?: boolean; // toggle smart push notifications
   decafPrefs?: Record<string, boolean>; // decaf preferences dictionary
 }
 
-export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine' | string;
+export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine';
 
 export interface LiquidConfig {
   tag: string;

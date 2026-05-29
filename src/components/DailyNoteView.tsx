@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
-import { Trash2, CheckCircle2, Circle, Coffee, AlertCircle, TrendingDown, TrendingUp, Sparkles } from 'lucide-react-native';
+import { Trash2, Coffee, TrendingDown, TrendingUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { DayProgress, LIQUID_CONFIGS, UserSettings, DrinkLog } from '../types';
@@ -31,13 +31,16 @@ export default function DailyNoteView({ progress, onDeleteLog, settings, logs }:
 
   const isCompleted = percentage >= 100;
 
-  // V2 Calculations
-  const { activeMg, hoursToClear } = calculateActiveCaffeine(logs);
-  const curveData = getHydrationCurveData(logs, settings);
-  const currentHour = new Date().getHours();
-  const currentPt = curveData[currentHour] || curveData[curveData.length - 1];
-  const curveDiff = currentPt ? currentPt.actual - currentPt.target : 0;
-  const isLagging = curveDiff < -0.12 * progress.goal; // Lagging behind by more than 12%
+  // Memoize V2 Calculations for performance
+  const { activeMg, hoursToClear, curveDiff, isLagging } = useMemo(() => {
+    const { activeMg, hoursToClear } = calculateActiveCaffeine(logs);
+    const curveData = getHydrationCurveData(logs, settings);
+    const currentHour = new Date().getHours();
+    const currentPt = curveData[currentHour] || curveData[curveData.length - 1];
+    const curveDiff = currentPt ? currentPt.actual - currentPt.target : 0;
+    const isLagging = curveDiff < -0.12 * progress.goal; // Lagging behind by more than 12%
+    return { activeMg, hoursToClear, curveDiff, isLagging };
+  }, [logs, settings, progress.goal]);
 
   return (
     <ScrollView 
@@ -76,8 +79,8 @@ export default function DailyNoteView({ progress, onDeleteLog, settings, logs }:
             ellipsizeMode="tail"
           >
             {curveDiff >= 0 
-              ? `Dynamic Curve Compliant (+${curveDiff}ml ahead)`
-              : `Lagging Behind Curve Target (-${Math.abs(curveDiff)}ml behind)`
+              ? `Dynamic Curve Compliant (${Math.round(curveDiff)}ml ahead)`
+              : `Lagging Behind Curve Target (${Math.round(Math.abs(curveDiff))}ml behind)`
             }
           </Text>
         </View>
@@ -192,9 +195,8 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.md,
   },
   dateHeader: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 22,
-    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
   },
   badge: {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View, Modal, TouchableOpacity } from 'react-native';
-import { Award, Check } from 'lucide-react-native';
+import { Check } from 'lucide-react-native';
 import { theme } from '../theme';
 
 interface GoalModalProps {

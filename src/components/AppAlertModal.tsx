@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View, Modal, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, Modal, TouchableOpacity, StyleProp, TextStyle } from 'react-native';
 import { theme } from '../theme';
 
 export interface AppAlertButton {
@@ -43,7 +43,7 @@ export default function AppAlertModal({ visible, title, message, buttons, onClos
 
           <View style={isRowLayout ? styles.rowButtons : styles.colButtons}>
             {activeButtons.map((btn, index) => {
-              let btnStyle: any = styles.defaultBtnText;
+              let btnStyle: StyleProp<TextStyle> = styles.defaultBtnText;
               if (btn.style === 'destructive') btnStyle = styles.destructiveBtnText;
               if (btn.style === 'cancel') btnStyle = styles.cancelBtnText;
 

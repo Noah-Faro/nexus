@@ -1,44 +1,25 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { WorkoutSession, WorkoutTemplate, Exercise } from './trainingTypes';
+import { loadFromStorage, saveToStorage } from './utils';
+import { WorkoutSession, WorkoutTemplate, Exercise, ExerciseDefaults } from './trainingTypes';
 
 const SESSIONS_KEY = '@nexus_training_sessions';
 const TEMPLATES_KEY = '@nexus_training_templates';
 const CUSTOM_EXERCISES_KEY = '@nexus_training_custom_exercises';
+const EXERCISE_DEFAULTS_KEY = '@nexus_training_exercise_defaults';
 
 export async function loadWorkoutSessions(): Promise<WorkoutSession[]> {
-  try {
-    const data = await AsyncStorage.getItem(SESSIONS_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error('Error loading training sessions', e);
-  }
-  return [];
+  return loadFromStorage<WorkoutSession[]>(SESSIONS_KEY, []);
 }
 
-export async function saveWorkoutSessions(sessions: WorkoutSession[]) {
-  try {
-    await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-  } catch (e) {
-    console.error('Error saving training sessions', e);
-  }
+export async function saveWorkoutSessions(sessions: WorkoutSession[]): Promise<void> {
+  return saveToStorage<WorkoutSession[]>(SESSIONS_KEY, sessions);
 }
 
 export async function loadTemplates(): Promise<WorkoutTemplate[]> {
-  try {
-    const data = await AsyncStorage.getItem(TEMPLATES_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error('Error loading templates', e);
-  }
-  return DEFAULT_TEMPLATES;
+  return loadFromStorage<WorkoutTemplate[]>(TEMPLATES_KEY, DEFAULT_TEMPLATES);
 }
 
-export async function saveTemplates(templates: WorkoutTemplate[]) {
-  try {
-    await AsyncStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
-  } catch (e) {
-    console.error('Error saving templates', e);
-  }
+export async function saveTemplates(templates: WorkoutTemplate[]): Promise<void> {
+  return saveToStorage<WorkoutTemplate[]>(TEMPLATES_KEY, templates);
 }
 
 const DEFAULT_TEMPLATES: WorkoutTemplate[] = [
@@ -77,39 +58,27 @@ const DEFAULT_TEMPLATES: WorkoutTemplate[] = [
 ];
 
 export async function loadCustomExercises(): Promise<Exercise[]> {
-  try {
-    const data = await AsyncStorage.getItem(CUSTOM_EXERCISES_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error('Error loading custom exercises', e);
-  }
-  return [];
+  return loadFromStorage<Exercise[]>(CUSTOM_EXERCISES_KEY, []);
 }
 
-export async function saveCustomExercises(exercises: Exercise[]) {
-  try {
-    await AsyncStorage.setItem(CUSTOM_EXERCISES_KEY, JSON.stringify(exercises));
-  } catch (e) {
-    console.error('Error saving custom exercises', e);
-  }
+export async function saveCustomExercises(exercises: Exercise[]): Promise<void> {
+  return saveToStorage<Exercise[]>(CUSTOM_EXERCISES_KEY, exercises);
 }
 
-const EXERCISE_DEFAULTS_KEY = '@nexus_training_exercise_defaults';
-
-export async function loadExerciseDefaults(): Promise<Record<string, { defaultWeight: number, defaultReps: number }>> {
-  try {
-    const data = await AsyncStorage.getItem(EXERCISE_DEFAULTS_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error('Error loading exercise defaults', e);
-  }
-  return {};
+export async function loadExerciseDefaults(): Promise<Record<string, ExerciseDefaults>> {
+  return loadFromStorage<Record<string, ExerciseDefaults>>(EXERCISE_DEFAULTS_KEY, {});
 }
 
-export async function saveExerciseDefaults(defaults: Record<string, { defaultWeight: number, defaultReps: number }>) {
-  try {
-    await AsyncStorage.setItem(EXERCISE_DEFAULTS_KEY, JSON.stringify(defaults));
-  } catch (e) {
-    console.error('Error saving exercise defaults', e);
-  }
+export async function saveExerciseDefaults(defaults: Record<string, ExerciseDefaults>): Promise<void> {
+  return saveToStorage<Record<string, ExerciseDefaults>>(EXERCISE_DEFAULTS_KEY, defaults);
+}
+
+const ACTIVE_SESSION_KEY = '@nexus_training_active_session';
+
+export async function loadActiveSession(): Promise<WorkoutSession | null> {
+  return loadFromStorage<WorkoutSession | null>(ACTIVE_SESSION_KEY, null);
+}
+
+export async function saveActiveSession(session: WorkoutSession | null): Promise<void> {
+  return saveToStorage<WorkoutSession | null>(ACTIVE_SESSION_KEY, session);
 }

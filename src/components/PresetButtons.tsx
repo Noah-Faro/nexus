@@ -5,8 +5,8 @@ import { theme } from '../theme';
 import { LiquidType, LIQUID_CONFIGS, UserSettings, LiquidConfig } from '../types';
 
 interface PresetButtonsProps {
-  selectedType: LiquidType;
-  onSelectType: (type: LiquidType) => void;
+  selectedType: string;
+  onSelectType: (type: string) => void;
   onQuickLog: (amount: number, isDecaf?: boolean) => void;
   isExpanded: boolean;
   onSetExpanded: (expanded: boolean) => void;
@@ -144,11 +144,6 @@ export default function PresetButtons({
       }
     })
   ).current;
-
-  const handleSelect = (type: LiquidType) => {
-    Haptics.selectionAsync(); 
-    onSelectType(type);
-  };
 
   const handleToggle = () => {
     Keyboard.dismiss(); 

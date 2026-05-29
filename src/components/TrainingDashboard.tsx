@@ -37,7 +37,7 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
         <View style={styles.barRow}>
           <Text style={styles.barLabel}>PUSH</Text>
           <View style={styles.barTrack}>
-            <View style={[styles.barFill, { backgroundColor: '#64d2ff', width: totalVolume ? `${(pushVol / totalVolume) * 100}%` : '0%' }]} />
+            <View style={[styles.barFill, { backgroundColor: theme.colors.accentCyan, width: totalVolume ? `${(pushVol / totalVolume) * 100}%` : '0%' }]} />
           </View>
           <Text style={styles.barValue}>{pushVol} kg</Text>
         </View>
@@ -45,7 +45,7 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
         <View style={styles.barRow}>
           <Text style={styles.barLabel}>PULL</Text>
           <View style={styles.barTrack}>
-            <View style={[styles.barFill, { backgroundColor: '#32d74b', width: totalVolume ? `${(pullVol / totalVolume) * 100}%` : '0%' }]} />
+            <View style={[styles.barFill, { backgroundColor: theme.colors.accentGreen, width: totalVolume ? `${(pullVol / totalVolume) * 100}%` : '0%' }]} />
           </View>
           <Text style={styles.barValue}>{pullVol} kg</Text>
         </View>
@@ -53,7 +53,7 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
         <View style={styles.barRow}>
           <Text style={styles.barLabel}>LEGS</Text>
           <View style={styles.barTrack}>
-            <View style={[styles.barFill, { backgroundColor: '#ff9f0a', width: totalVolume ? `${(legsVol / totalVolume) * 100}%` : '0%' }]} />
+            <View style={[styles.barFill, { backgroundColor: theme.colors.accentAmber, width: totalVolume ? `${(legsVol / totalVolume) * 100}%` : '0%' }]} />
           </View>
           <Text style={styles.barValue}>{legsVol} kg</Text>
         </View>

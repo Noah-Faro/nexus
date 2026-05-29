@@ -2,6 +2,7 @@
   "expo": {
     "name": "NEXUS",
     "slug": "nexus",
+    "scheme": "nexus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,7 +16,30 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.noahg.nexus",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "NEXUS Vault Backup",
+            "LSHandlerRank": "Owner",
+            "LSItemContentTypes": [
+              "com.noahg.nexus.backup"
+            ]
+          }
+        ],
+        "UTExportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "com.noahg.nexus.backup",
+            "UTTypeDescription": "NEXUS Vault Backup",
+            "UTTypeConformsTo": [
+              "public.data"
+            ],
+            "UTTypeTagSpecification": {
+              "public.filename-extension": [
+                "nexus"
+              ]
+            }
+          }
+        ]
       }
     },
     "android": {

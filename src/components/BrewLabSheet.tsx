@@ -17,6 +17,7 @@ import { X, Sparkles, AlertTriangle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { LiquidConfig, LiquidType } from '../types';
+import SheetHeader from './SheetHeader';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -252,15 +253,11 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
           </View>
 
           {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.titleRow}>
-              <Sparkles size={20} color={selectedColor} style={styles.sparkle} />
-              <Text style={styles.title}>Brew Lab</Text>
-            </View>
-            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-              <X size={20} color={theme.colors.textMuted} />
-            </TouchableOpacity>
-          </View>
+          <SheetHeader
+            title="Brew Lab"
+            onClose={handleClose}
+            icon={<Sparkles size={20} color={selectedColor} />}
+          />
 
           <ScrollView 
             showsVerticalScrollIndicator={false}

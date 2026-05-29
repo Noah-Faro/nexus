@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, Keyboard } from 'react-native';
-import { Plus, ArrowUp } from 'lucide-react-native';
+import { ArrowUp } from 'lucide-react-native';
 import { theme } from '../theme';
-import { LIQUID_CONFIGS, LiquidType, UserSettings, LiquidConfig } from '../types';
+import { LIQUID_CONFIGS, LiquidType, UserSettings } from '../types';
 
 interface CommandPaletteProps {
-  selectedType: LiquidType;
+  selectedType: string;
   onLog: (amount: number) => void;
   onCommand: (cmd: string) => void;
   settings: UserSettings;

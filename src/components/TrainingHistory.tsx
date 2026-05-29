@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Trash2, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { theme } from '../theme';
 import { WorkoutSession, Exercise } from '../trainingTypes';
-import { EXERCISE_LIBRARY } from '../exerciseLibrary';
+import { getExerciseById } from '../utils';
+import { AppAlertButton } from './AppAlertModal';
 
 interface TrainingHistoryProps {
   sessions: WorkoutSession[];
   onDeleteSession: (sessionId: string) => void;
   onEditSession: (session: WorkoutSession) => void;
   customExercises: Exercise[];
+  triggerAlert: (title: string, message: string, buttons?: AppAlertButton[]) => void;
 }
 
-export default function TrainingHistory({ sessions, onDeleteSession, onEditSession, customExercises }: TrainingHistoryProps) {
+export default function TrainingHistory({ sessions, onDeleteSession, onEditSession, customExercises, triggerAlert }: TrainingHistoryProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   if (sessions.length === 0) {
     return (
@@ -41,7 +43,7 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
           <TouchableOpacity 
             style={styles.deleteAction} 
             onPress={() => {
-              Alert.alert('Delete Session', 'Are you sure you want to delete this session?', [
+              triggerAlert('Delete Session', 'Are you sure you want to delete this session?', [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Delete', style: 'destructive', onPress: () => onDeleteSession(session.id) }
               ]);
@@ -51,48 +53,52 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
           </TouchableOpacity>
         )}
       >
-        <TouchableOpacity 
-          style={styles.card} 
-          activeOpacity={0.7} 
-          onPress={() => setExpandedId(isExpanded ? null : session.id)}
-        >
+        <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <View>
+            <TouchableOpacity 
+              style={{ flex: 1, marginRight: 8 }}
+              activeOpacity={0.7}
+              onPress={() => setExpandedId(isExpanded ? null : session.id)}
+            >
               <Text style={styles.templateName}>{session.templateName} • Session #{session.sessionNumber}</Text>
               <Text style={styles.date}>{dateString} • {session.durationMinutes || 0} min</Text>
-            </View>
+            </TouchableOpacity>
             <TouchableOpacity 
-              onPress={(e) => { e.stopPropagation(); onEditSession(session); }}
+              onPress={() => onEditSession(session)}
               style={styles.editBtn}
             >
               <Text style={styles.editBtnText}>Edit</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.cardBody}>
+          <TouchableOpacity 
+            style={styles.cardBody} 
+            activeOpacity={0.7}
+            onPress={() => setExpandedId(isExpanded ? null : session.id)}
+          >
             <View>
               <Text style={styles.details}>{uniqueExercises} exercises • {session.sets.length} sets</Text>
               <Text style={styles.volume}>Volume: {session.totalVolume} {unit}</Text>
             </View>
             {isExpanded ? <ChevronUp color={theme.colors.textMuted} size={20} /> : <ChevronDown color={theme.colors.textMuted} size={20} />}
-          </View>
+          </TouchableOpacity>
           
           {isExpanded && (
             <View style={styles.expandedContent}>
               {(session.exercises || Array.from(new Set(session.sets.map(s => s.exerciseId))).map(exId => ({ exerciseId: exId }))).map(tEx => {
                 const exId = tEx.exerciseId;
-                const exDef = EXERCISE_LIBRARY[exId] || customExercises?.find(c => c.id === exId);
+                const exDef = getExerciseById(exId, customExercises);
                 const name = exDef ? exDef.name : 'Unknown Exercise';
                 const unit = exDef ? exDef.weightUnit : 'kg';
                 const exSets = session.sets.filter(s => s.exerciseId === exId);
                 if (exSets.length === 0) return null;
 
                 return (
-                  <View key={exId} style={styles.exBlock}>
+                   <View key={exId} style={styles.exBlock}>
                     <Text style={styles.exName}>{name}</Text>
                     {exSets.map(s => (
                       <View key={s.id} style={styles.setRow}>
                         <Text style={styles.setText}>Set {s.setNumber}</Text>
-                        <Text style={styles.setText}>{s.weight}{unit} × {s.reps}</Text>
+                        <Text style={styles.setText}>{s.weight}{s.weightUnit || unit} × {s.reps}</Text>
                       </View>
                     ))}
                   </View>
@@ -100,7 +106,7 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
               })}
             </View>
           )}
-        </TouchableOpacity>
+        </View>
       </Swipeable>
     );
   };
@@ -147,12 +153,12 @@ const styles = StyleSheet.create({
   editBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#3a3a3c',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surfaceSecondary,
+    borderRadius: theme.borderRadius.md,
   },
   editBtnText: {
     fontFamily: theme.typography.sans,
-    color: '#64d2ff',
+    color: theme.colors.accentCyan,
     fontSize: 12,
   },
   templateName: {
@@ -182,11 +188,11 @@ const styles = StyleSheet.create({
   volume: {
     fontFamily: theme.typography.sans,
     fontSize: 14,
-    color: '#32d74b',
+    color: theme.colors.accentGreen,
     fontWeight: theme.typography.weight.medium,
   },
   deleteAction: {
-    backgroundColor: '#ff453a',
+    backgroundColor: theme.colors.accentRed,
     justifyContent: 'center',
     alignItems: 'center',
     width: 80,

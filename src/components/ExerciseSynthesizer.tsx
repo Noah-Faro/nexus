@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { X, Save } from 'lucide-react-native';
 import { theme } from '../theme';
 import { Exercise, MuscleGroup, EquipmentType } from '../trainingTypes';
+import { generateId } from '../utils';
+import SheetHeader from './SheetHeader';
+import AppAlertModal from './AppAlertModal';
 
 interface ExerciseSynthesizerProps {
   visible: boolean;
@@ -19,14 +21,24 @@ export default function ExerciseSynthesizer({ visible, onClose, onSave }: Exerci
   const [equipment, setEquipment] = useState(EQUIPMENT[0]);
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
 
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+
+  const triggerAlert = (title: string, message: string) => {
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertVisible(true);
+  };
+
   const handleSave = () => {
     if (!name.trim()) {
-      Alert.alert('Missing Name', 'Please enter a name for the custom exercise.');
+      triggerAlert('Missing Name', 'Please enter a name for the custom exercise.');
       return;
     }
 
     const newEx: Exercise = {
-      id: 'custom-' + Math.random().toString(36).substring(2, 10),
+      id: 'custom-' + generateId(),
       name: name.trim(),
       muscleGroup: muscleGroup.toLowerCase() as MuscleGroup,
       equipment: equipment.toLowerCase() as EquipmentType,
@@ -43,15 +55,16 @@ export default function ExerciseSynthesizer({ visible, onClose, onSave }: Exerci
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Exercise</Text>
-          <TouchableOpacity onPress={handleSave} style={styles.headerBtn}>
-            <Text style={styles.saveText}>Save</Text>
-          </TouchableOpacity>
-        </View>
+        <SheetHeader
+          title="New Exercise"
+          onClose={onClose}
+          closeLabel="Cancel"
+          rightAction={
+            <TouchableOpacity onPress={handleSave}>
+              <Text style={styles.saveText}>Save</Text>
+            </TouchableOpacity>
+          }
+        />
 
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <View style={styles.section}>
@@ -110,6 +123,13 @@ export default function ExerciseSynthesizer({ visible, onClose, onSave }: Exerci
             </View>
           </View>
         </ScrollView>
+        <AppAlertModal
+          visible={alertVisible}
+          title={alertTitle}
+          message={alertMessage}
+          buttons={[{ text: 'OK', style: 'default' }]}
+          onClose={() => setAlertVisible(false)}
+        />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -134,12 +154,12 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     fontFamily: theme.typography.sans,
-    color: '#ff453a',
+    color: theme.colors.accentRed,
     fontSize: 16,
   },
   saveText: {
     fontFamily: 'Outfit_600SemiBold',
-    color: '#32d74b',
+    color: theme.colors.accent,
     fontSize: 16,
     textAlign: 'right',
   },

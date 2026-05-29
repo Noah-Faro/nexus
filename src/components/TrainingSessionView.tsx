@@ -1,24 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Check, Play, ChevronDown, ChevronUp, Trash2, Plus } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronUp, Trash2, Plus } from 'lucide-react-native';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { theme } from '../theme';
-import { WorkoutSession, LoggedSet, TemplateExercise, Exercise } from '../trainingTypes';
-import { EXERCISE_LIBRARY } from '../exerciseLibrary';
+import { WorkoutSession, LoggedSet, TemplateExercise, Exercise, ExerciseDefaults } from '../trainingTypes';
 import ExercisePickerModal from './ExercisePickerModal';
+import { generateId, getExerciseById } from '../utils';
+import StepperInput from './StepperInput';
+import { AppAlertButton } from './AppAlertModal';
+import { saveActiveSession } from '../trainingStorage';
 
 interface TrainingSessionViewProps {
   session: WorkoutSession;
   templateExercises: TemplateExercise[];
   customExercises: Exercise[];
-  exerciseDefaults: Record<string, { defaultWeight: number, defaultReps: number }>;
+  exerciseDefaults: Record<string, ExerciseDefaults>;
   history: WorkoutSession[];
   onFinishSession: (session: WorkoutSession) => void;
   onCustomExercisesChange?: (updated: Exercise[]) => void;
+  triggerAlert: (title: string, message: string, buttons?: AppAlertButton[]) => void;
 }
 
-export default function TrainingSessionView({ session, templateExercises, customExercises, exerciseDefaults, history, onFinishSession, onCustomExercisesChange }: TrainingSessionViewProps) {
+export default function TrainingSessionView({ session, templateExercises, customExercises, exerciseDefaults, history, onFinishSession, onCustomExercisesChange, triggerAlert }: TrainingSessionViewProps) {
   const [sessionExercises, setSessionExercises] = useState<TemplateExercise[]>(() => {
     if (session.exercises && session.exercises.length > 0) {
       return session.exercises;
@@ -54,8 +58,11 @@ export default function TrainingSessionView({ session, templateExercises, custom
   const [currentReps, setCurrentReps] = useState(8);
   const [pickerVisible, setPickerVisible] = useState(false);
 
-  const activeTemplateEx = sessionExercises[activeExerciseIndex];
-  const activeExDef = activeTemplateEx ? EXERCISE_LIBRARY[activeTemplateEx.exerciseId] || customExercises.find(c => c.id === activeTemplateEx.exerciseId) : null;
+  const activeTemplateEx = activeExerciseIndex >= 0 && activeExerciseIndex < sessionExercises.length
+    ? sessionExercises[activeExerciseIndex]
+    : null;
+  const activeExDef = activeTemplateEx ? getExerciseById(activeTemplateEx.exerciseId, customExercises) || null : null;
+  const activeUnit = activeExDef ? (exerciseDefaults[activeExDef.id]?.weightUnit || activeExDef.weightUnit || 'kg') : 'kg';
 
   // Load defaults when active exercise changes
   useEffect(() => {
@@ -71,6 +78,12 @@ export default function TrainingSessionView({ session, templateExercises, custom
       }
     }
   }, [activeExerciseIndex, activeExDef?.id]);
+
+  useEffect(() => {
+    if (!session.endTime) {
+      saveActiveSession({ ...session, sets, exercises: sessionExercises });
+    }
+  }, [sets, sessionExercises]);
 
   // Track timer
   const [elapsed, setElapsed] = useState(0);
@@ -98,12 +111,12 @@ export default function TrainingSessionView({ session, templateExercises, custom
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     
     const newSet: LoggedSet = {
-      id: Math.random().toString(36).substring(2, 15),
+      id: generateId(),
       exerciseId: activeExDef.id,
       exerciseName: activeExDef.name,
       setNumber: sets.filter(s => s.exerciseId === activeExDef.id).length + 1,
       weight: currentWeight,
-      weightUnit: activeExDef.weightUnit,
+      weightUnit: activeUnit,
       reps: currentReps,
       timestamp: Date.now(),
       estimated1RM: Math.round(currentWeight * (1 + currentReps / 30))
@@ -112,14 +125,15 @@ export default function TrainingSessionView({ session, templateExercises, custom
     const newSets = [...sets, newSet];
     setSets(newSets);
 
-    // Auto advance if target sets reached and this is the first time we hit the target
     const setsForThisEx = newSets.filter(s => s.exerciseId === activeExDef.id);
     if (setsForThisEx.length === activeTemplateEx.targetSets) {
-      if (activeExerciseIndex < sessionExercises.length - 1) {
-        setTimeout(() => {
+      setTimeout(() => {
+        if (activeExerciseIndex < sessionExercises.length - 1) {
           setActiveExerciseIndex(activeExerciseIndex + 1);
-        }, 300);
-      }
+        } else {
+          setActiveExerciseIndex(-1);
+        }
+      }, 300);
     }
   };
 
@@ -158,18 +172,16 @@ export default function TrainingSessionView({ session, templateExercises, custom
 
   const handleRemoveExercise = (index: number, exId: string) => {
     const hasSets = sets.some(s => s.exerciseId === exId);
-    if (hasSets) {
-      Alert.alert(
-        "Remove Exercise",
-        "This exercise has logged sets. Removing it will delete those sets. Continue?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Remove", style: "destructive", onPress: () => performRemoveExercise(index, exId) }
-        ]
-      );
-    } else {
-      performRemoveExercise(index, exId);
-    }
+    triggerAlert(
+      "Remove Exercise?",
+      hasSets
+        ? "This exercise has logged sets. Removing it will delete those sets from this session."
+        : "Are you sure you want to remove this exercise from the session?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: () => performRemoveExercise(index, exId) }
+      ]
+    );
   };
 
   const performRemoveExercise = (index: number, exId: string) => {
@@ -205,8 +217,9 @@ export default function TrainingSessionView({ session, templateExercises, custom
   };
 
   const renderExerciseCard = (tEx: TemplateExercise, index: number) => {
-    const exDef = EXERCISE_LIBRARY[tEx.exerciseId] || customExercises.find(c => c.id === tEx.exerciseId);
+    const exDef = getExerciseById(tEx.exerciseId, customExercises);
     if (!exDef) return null;
+    const exUnit = (exerciseDefaults[exDef.id]?.weightUnit) || exDef.weightUnit || 'kg';
 
     const isExpanded = index === activeExerciseIndex;
     const completedSets = sets.filter(s => s.exerciseId === exDef.id);
@@ -278,35 +291,36 @@ export default function TrainingSessionView({ session, templateExercises, custom
               }
               return null;
             })()}
-
-            {/* Active Set Input - Always shown (Dynamic set count) */}
             <View style={styles.activeSetContainer}>
+              {/* Active Set Input - Always shown (Dynamic set count) */}
               <View style={styles.setRowActive}>
                 <Text style={styles.setTextActive}>Set {completedSets.length + 1}</Text>
-                <Text style={styles.setTextActive}>{currentWeight}{exDef.weightUnit} × {currentReps}</Text>
+                <Text style={styles.setTextActive}>{currentWeight}{exUnit} × {currentReps}</Text>
                 <View style={styles.rmBadge}>
-                  <Text style={styles.rmBadgeText}>Est 1RM: {Math.round(currentWeight * (1 + currentReps / 30))} {exDef.weightUnit}</Text>
+                  <Text style={styles.rmBadgeText}>Est 1RM: {Math.round(currentWeight * (1 + currentReps / 30))} {exUnit}</Text>
                 </View>
               </View>
-
+ 
               {/* Pickers */}
               <View style={styles.pickersContainer}>
                 <View style={styles.pickerCol}>
-                  <Text style={styles.pickerLabel}>Weight ({exDef.weightUnit})</Text>
-                  <View style={styles.stepper}>
-                    <TouchableOpacity style={styles.stepperBtn} onPress={decrementWeight}><Text style={styles.stepperBtnText}>-</Text></TouchableOpacity>
-                    <Text style={styles.stepperValue}>{currentWeight}</Text>
-                    <TouchableOpacity style={styles.stepperBtn} onPress={incrementWeight}><Text style={styles.stepperBtnText}>+</Text></TouchableOpacity>
-                  </View>
+                  <Text style={styles.pickerLabel}>Weight ({exUnit})</Text>
+                  <StepperInput
+                    value={currentWeight}
+                    onChange={(val) => setCurrentWeight(Number(val.toFixed(1)))}
+                    min={0}
+                    step={exDef.incrementStep || 2.5}
+                  />
                 </View>
                 
                 <View style={styles.pickerCol}>
                   <Text style={styles.pickerLabel}>Reps</Text>
-                  <View style={styles.stepper}>
-                    <TouchableOpacity style={styles.stepperBtn} onPress={decrementReps}><Text style={styles.stepperBtnText}>-</Text></TouchableOpacity>
-                    <Text style={styles.stepperValue}>{currentReps}</Text>
-                    <TouchableOpacity style={styles.stepperBtn} onPress={incrementReps}><Text style={styles.stepperBtnText}>+</Text></TouchableOpacity>
-                  </View>
+                  <StepperInput
+                    value={currentReps}
+                    onChange={setCurrentReps}
+                    min={1}
+                    step={1}
+                  />
                 </View>
               </View>
 
@@ -392,7 +406,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   exerciseCardActive: {
-    borderColor: '#3a3a3c',
+    borderColor: theme.colors.surfaceSecondary,
     borderWidth: 1,
   },
   exerciseHeader: {
@@ -432,7 +446,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   deleteAction: {
-    backgroundColor: '#ff453a',
+    backgroundColor: theme.colors.accentRed,
     justifyContent: 'center',
     alignItems: 'center',
     width: 60,
@@ -454,28 +468,28 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   rmBadge: {
-    backgroundColor: 'rgba(100, 210, 255, 0.1)',
+    backgroundColor: theme.colors.accentCyanFade,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: theme.borderRadius.sm,
   },
   rmBadgeText: {
     fontFamily: theme.typography.sans,
-    color: '#64d2ff',
+    color: theme.colors.accentCyan,
     fontSize: 12,
   },
   setRowActive: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 12,
-    backgroundColor: 'rgba(100, 210, 255, 0.1)',
+    backgroundColor: theme.colors.accentCyanFade,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: theme.borderRadius.sm,
     marginBottom: 16,
   },
   setTextActive: {
     fontFamily: theme.typography.sans,
-    color: '#64d2ff',
+    color: theme.colors.accentCyan,
     fontSize: 16,
     fontWeight: theme.typography.weight.semibold,
   },
@@ -498,7 +512,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 8,
+    borderRadius: theme.borderRadius.sm,
     padding: 4,
   },
   stepperBtn: {
@@ -506,7 +520,7 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3a3a3c',
+    backgroundColor: theme.colors.surfaceSecondary,
     borderRadius: 6,
   },
   stepperBtnText: {
@@ -522,10 +536,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   logBtn: {
-    backgroundColor: '#64d2ff',
+    backgroundColor: theme.colors.accentCyan,
     flexDirection: 'row',
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: theme.borderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -534,19 +548,13 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
   },
-  doneText: {
-    fontFamily: theme.typography.sans,
-    color: theme.colors.accent,
-    textAlign: 'center',
-    paddingVertical: 16,
-  },
   finishBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
     backgroundColor: 'rgba(255, 69, 58, 0.1)',
-    borderRadius: 12,
+    borderRadius: theme.borderRadius.md,
     marginTop: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 69, 58, 0.3)',
@@ -554,13 +562,13 @@ const styles = StyleSheet.create({
   finishSquare: {
     width: 14,
     height: 14,
-    backgroundColor: '#ff453a',
+    backgroundColor: theme.colors.accentRed,
     marginRight: 8,
     borderRadius: 3,
   },
   finishBtnText: {
     fontFamily: 'Outfit_600SemiBold',
-    color: '#ff453a',
+    color: theme.colors.accentRed,
     fontSize: 16,
   },
   addExerciseBtn: {
@@ -569,7 +577,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: 12,
+    borderRadius: theme.borderRadius.md,
     marginTop: 8,
     borderWidth: 1,
     borderColor: theme.colors.border,

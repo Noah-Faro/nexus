@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
@@ -12,148 +12,166 @@ interface CalendarHeatmapProps {
 
 export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps) {
   const [activeTab, setActiveTab] = useState<'grid' | 'trend'>('grid');
-  const progressMap = getAggregatedProgress(logs, settings);
-  
-  const today = new Date();
-  const dayOfWeek = today.getDay(); 
-  
-  const totalDays = 63;
-  const days: { dateKey: string; dateObj: Date; level: 0 | 1 | 2 | 3; percent: number }[] = [];
-  const startOffset = totalDays - 1 - (6 - dayOfWeek); 
-  
-  for (let i = startOffset; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(today.getDate() - i);
-    const dateKey = formatDateKey(d.getTime());
-    const progress = progressMap[dateKey];
+
+  const {
+    progressMap,
+    days,
+    last7Days,
+    currentStreak,
+    maxStreak,
+    compliantDays,
+    activeDays,
+    columns,
+    todayKey
+  } = useMemo(() => {
+    const progressMap = getAggregatedProgress(logs, settings);
     
-    let percent = 0;
-    let level: 0 | 1 | 2 | 3 = 0;
+    const today = new Date();
+    const dayOfWeek = today.getDay(); 
     
-    if (progress && progress.goal > 0) {
-      percent = Math.round((progress.totalEffective / progress.goal) * 100);
-      if (percent <= 0) level = 0;
-      else if (percent < 50) level = 1;
-      else if (percent < 100) level = 2;
-      else level = 3;
+    const totalDays = 63;
+    const days: { dateKey: string; dateObj: Date; level: 0 | 1 | 2 | 3; percent: number }[] = [];
+    const startOffset = totalDays - 1 - (6 - dayOfWeek); 
+    
+    for (let i = startOffset; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateKey = formatDateKey(d.getTime());
+      const progress = progressMap[dateKey];
+      
+      let percent = 0;
+      let level: 0 | 1 | 2 | 3 = 0;
+      
+      if (progress && progress.goal > 0) {
+        percent = Math.round((progress.totalEffective / progress.goal) * 100);
+        if (percent <= 0) level = 0;
+        else if (percent < 50) level = 1;
+        else if (percent < 100) level = 2;
+        else level = 3;
+      }
+      
+      days.push({ dateKey, dateObj: d, level, percent });
     }
-    
-    days.push({ dateKey, dateObj: d, level, percent });
-  }
 
-  const last7Days: { weekday: string; totalEffective: number; goal: number; percent: number }[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(today.getDate() - i);
-    const dateKey = formatDateKey(d.getTime());
-    const progress = progressMap[dateKey] || {
-      date: dateKey,
-      totalAmount: 0,
-      totalEffective: 0,
-      goal: calculateGoal(settings),
-      logs: []
-    };
-    
-    const percent = progress.goal > 0 
-      ? Math.round((progress.totalEffective / progress.goal) * 100) 
-      : 0;
-    
-    const weekdayStr = d.toLocaleDateString('en-US', { weekday: 'short' });
-    last7Days.push({ weekday: weekdayStr, totalEffective: progress.totalEffective, goal: progress.goal, percent });
-  }
+    const last7Days: { weekday: string; totalEffective: number; goal: number; percent: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateKey = formatDateKey(d.getTime());
+      const progress = progressMap[dateKey] || {
+        date: dateKey,
+        totalAmount: 0,
+        totalEffective: 0,
+        goal: calculateGoal(settings),
+        logs: []
+      };
+      
+      const percent = progress.goal > 0 
+        ? Math.round((progress.totalEffective / progress.goal) * 100) 
+        : 0;
+      
+      const weekdayStr = d.toLocaleDateString('en-US', { weekday: 'short' });
+      last7Days.push({ weekday: weekdayStr, totalEffective: progress.totalEffective, goal: progress.goal, percent });
+    }
 
-  // 1. Calculate Current Streak by traversing backwards from today/yesterday
-  let currentStreak = 0;
-  let checkDate = new Date();
-  
-  // First, check if today is already completed
-  const todayKey = formatDateKey(checkDate.getTime());
-  const todayProg = progressMap[todayKey];
-  const todayPercent = todayProg ? Math.round((todayProg.totalEffective / todayProg.goal) * 100) : 0;
-  
-  let isStreakActive = true;
-  
-  if (todayPercent >= 100) {
-    currentStreak = 1;
-    // Go backwards starting from yesterday
-    checkDate.setDate(checkDate.getDate() - 1);
-  } else {
-    // If today is not completed, yesterday must be completed to keep the streak alive
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayKey = formatDateKey(yesterday.getTime());
-    const yesterdayProg = progressMap[yesterdayKey];
-    const yesterdayPercent = yesterdayProg ? Math.round((yesterdayProg.totalEffective / yesterdayProg.goal) * 100) : 0;
+    // 1. Calculate Current Streak
+    let currentStreak = 0;
+    let checkDate = new Date();
+    const todayKey = formatDateKey(checkDate.getTime());
+    const todayProg = progressMap[todayKey];
+    const todayPercent = todayProg ? Math.round((todayProg.totalEffective / todayProg.goal) * 100) : 0;
     
-    if (yesterdayPercent >= 100) {
+    let isStreakActive = true;
+    
+    if (todayPercent >= 100) {
       currentStreak = 1;
-      checkDate.setDate(checkDate.getDate() - 2); // Start checking from 2 days ago
+      checkDate.setDate(checkDate.getDate() - 1);
     } else {
-      isStreakActive = false; // Yesterday not met, and today not met => current streak is 0
-    }
-  }
-  
-  if (isStreakActive) {
-    while (true) {
-      const k = formatDateKey(checkDate.getTime());
-      const prog = progressMap[k];
-      const pct = prog ? Math.round((prog.totalEffective / prog.goal) * 100) : 0;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayKey = formatDateKey(yesterday.getTime());
+      const yesterdayProg = progressMap[yesterdayKey];
+      const yesterdayPercent = yesterdayProg ? Math.round((yesterdayProg.totalEffective / yesterdayProg.goal) * 100) : 0;
       
-      if (pct >= 100) {
-        currentStreak++;
-        checkDate.setDate(checkDate.getDate() - 1);
+      if (yesterdayPercent >= 100) {
+        currentStreak = 1;
+        checkDate.setDate(checkDate.getDate() - 2);
       } else {
-        break; // Streak broken!
+        isStreakActive = false;
       }
     }
-  }
-
-  // 2. Calculate Max Streak by traversing all calendar days forward starting from first active day
-  let maxStreak = 0;
-  let compliantDays = 0;
-  let activeDays = 0;
-  
-  const sortedActiveKeys = Object.keys(progressMap).filter(k => progressMap[k].totalEffective > 0).sort();
-  
-  if (sortedActiveKeys.length > 0) {
-    const firstDateParts = sortedActiveKeys[0].split('-').map(Number);
-    const startDate = new Date(firstDateParts[0], firstDateParts[1] - 1, firstDateParts[2]);
-    const endDate = new Date(); // up to today
     
-    let tempStreak = 0;
-    let currDate = new Date(startDate);
-    
-    while (currDate <= endDate) {
-      const k = formatDateKey(currDate.getTime());
-      const prog = progressMap[k];
-      
-      if (prog && prog.totalEffective > 0) {
-        activeDays++;
-      }
-      
-      const pct = prog ? Math.round((prog.totalEffective / prog.goal) * 100) : 0;
-      if (pct >= 100) {
-        tempStreak++;
-        compliantDays++;
-        if (tempStreak > maxStreak) {
-          maxStreak = tempStreak;
-        }
-      } else {
-        // Only break the streak if it's NOT today.
-        // Today is allowed to be incomplete without breaking the running maxStreak calculation,
-        // but if it's yesterday or earlier, a failure resets the running tempStreak to 0.
-        if (k !== todayKey) {
-          tempStreak = 0;
+    if (isStreakActive) {
+      while (true) {
+        const k = formatDateKey(checkDate.getTime());
+        const prog = progressMap[k];
+        const pct = prog ? Math.round((prog.totalEffective / prog.goal) * 100) : 0;
+        
+        if (pct >= 100) {
+          currentStreak++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else {
+          break;
         }
       }
-      currDate.setDate(currDate.getDate() + 1);
     }
-  }
 
-  const columns: typeof days[] = [];
-  for (let i = 0; i < days.length; i += 7) {
-    columns.push(days.slice(i, i + 7));
-  }
+    // 2. Calculate Max Streak
+    let maxStreak = 0;
+    let compliantDays = 0;
+    let activeDays = 0;
+    
+    const sortedActiveKeys = Object.keys(progressMap).filter(k => progressMap[k].totalEffective > 0).sort();
+    
+    if (sortedActiveKeys.length > 0) {
+      const firstDateParts = sortedActiveKeys[0].split('-').map(Number);
+      const startDate = new Date(firstDateParts[0], firstDateParts[1] - 1, firstDateParts[2]);
+      const endDate = new Date();
+      
+      let tempStreak = 0;
+      let currDate = new Date(startDate);
+      
+      while (currDate <= endDate) {
+        const k = formatDateKey(currDate.getTime());
+        const prog = progressMap[k];
+        
+        if (prog && prog.totalEffective > 0) {
+          activeDays++;
+        }
+        
+        const pct = prog ? Math.round((prog.totalEffective / prog.goal) * 100) : 0;
+        if (pct >= 100) {
+          tempStreak++;
+          compliantDays++;
+          if (tempStreak > maxStreak) {
+            maxStreak = tempStreak;
+          }
+        } else {
+          if (k !== todayKey) {
+            tempStreak = 0;
+          }
+        }
+        currDate.setDate(currDate.getDate() + 1);
+      }
+    }
+
+    const columns: typeof days[] = [];
+    for (let i = 0; i < days.length; i += 7) {
+      columns.push(days.slice(i, i + 7));
+    }
+
+    return {
+      progressMap,
+      days,
+      last7Days,
+      currentStreak,
+      maxStreak,
+      compliantDays,
+      activeDays,
+      columns,
+      todayKey
+    };
+  }, [logs, settings]);
 
   const rowLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
