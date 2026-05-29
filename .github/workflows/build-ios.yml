@@ -23,6 +23,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ensure Expo SDK 54 Compatibility (Auto-fix version mismatches)
+        run: npx expo install --fix
+
       - name: Generate Native iOS Directory (Expo Prebuild)
         run: npx expo prebuild --platform ios
 
