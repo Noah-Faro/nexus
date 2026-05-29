@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Play, ChevronLeft, BarChart2, List, Plus, Settings, Edit2 } from 'lucide-react-native';
@@ -21,9 +21,10 @@ import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 interface TrainingAppProps {
   onReturn: () => void;
   initialCommand?: string;
+  onCloudAutoPush?: () => void;
 }
 
-export default function TrainingApp({ onReturn, initialCommand }: TrainingAppProps) {
+export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush }: TrainingAppProps) {
   const [activeView, setActiveView] = useState<'home' | 'session' | 'history' | 'dashboard'>('home');
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
@@ -34,6 +35,7 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
   const [editingTemplate, setEditingTemplate] = useState<WorkoutTemplate | null>(null);
   
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
+  const isLoadedRef = useRef(false);
 
   // Custom alert modal state
   const [alertConfig, setAlertConfig] = useState<{
@@ -83,9 +85,21 @@ export default function TrainingApp({ onReturn, initialCommand }: TrainingAppPro
           }
         }
       }
+      
+      // Allow state updates to settle, then enable reactive cloud pushes
+      setTimeout(() => {
+        isLoadedRef.current = true;
+      }, 500);
     }
     loadData();
   }, [initialCommand]);
+
+  useEffect(() => {
+    if (isLoadedRef.current) {
+      console.log('Training state change detected, auto-pushing to cloud...');
+      onCloudAutoPush?.();
+    }
+  }, [templates, sessions, customExercises, exerciseDefaults]);
 
   const handleStartSession = (template: WorkoutTemplate, customSessionCount?: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

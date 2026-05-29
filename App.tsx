@@ -625,6 +625,7 @@ export default function App() {
               setIronCommand(undefined);
             }} 
             initialCommand={ironCommand}
+            onCloudAutoPush={handleCloudAutoPush}
           />
         ) : (
           <>
