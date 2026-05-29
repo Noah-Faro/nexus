@@ -36,7 +36,7 @@ import NexusVault from './src/components/NexusVault';
 import BrewLabSheet from './src/components/BrewLabSheet';
 import TrainingApp from './src/components/TrainingApp';
 import { useGoogleDriveAuth } from './src/googleAuth';
-import { performDriveSync } from './src/sync';
+import { performDriveSync, performDrivePush } from './src/sync';
 import { findStateFileId } from './src/googleDrive';
 import * as SecureStore from 'expo-secure-store';
 
@@ -142,6 +142,21 @@ export default function App() {
       triggerAlert('Sync Failed', err.message || 'An error occurred during sync.');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleCloudAutoPush = async () => {
+    if (accessToken && settings?.googleDriveAutoSyncEnabled !== false) {
+      try {
+        const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
+        if (savedPassword) {
+          console.log('Starting silent background cloud push...');
+          await performDrivePush(accessToken, savedPassword);
+          console.log('Silent background cloud push completed.');
+        }
+      } catch (err) {
+        console.log('Silent background cloud push failed:', err);
+      }
     }
   };
 
@@ -405,6 +420,7 @@ export default function App() {
     setLogs(prevLogs => {
       const updatedLogs = [newLog, ...prevLogs];
       saveLogs(updatedLogs);
+      handleCloudAutoPush();
 
       // Subtle compliance check alert using non-stale prevLogs
       const newProgress = getTodayProgress(updatedLogs, settings);
@@ -432,6 +448,7 @@ export default function App() {
     const updatedLogs = logs.filter((log) => log.id !== id);
     setLogs(updatedLogs);
     await saveLogs(updatedLogs);
+    handleCloudAutoPush();
   };
 
   // Save profile metrics settings
@@ -439,6 +456,7 @@ export default function App() {
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    handleCloudAutoPush();
   };
 
   // Custom liquid formulas synthesized in the Brew Lab
@@ -454,6 +472,7 @@ export default function App() {
     };
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
+    handleCloudAutoPush();
   };
 
   const handleDeleteCustomLiquid = async (tag: string) => {
@@ -466,6 +485,7 @@ export default function App() {
     };
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
+    handleCloudAutoPush();
   };
 
   // Process slash commands from Obsidian command console
@@ -535,6 +555,7 @@ export default function App() {
 
                 setLogs(filtered);
                 await saveLogs(filtered);
+                handleCloudAutoPush();
                 triggerAlert('Cleared', "Today's logs have been cleared.");
               }
             }
@@ -556,6 +577,7 @@ export default function App() {
                 setSettings(DEFAULT_SETTINGS);
                 await saveLogs([]);
                 await saveSettings(DEFAULT_SETTINGS);
+                handleCloudAutoPush();
                 triggerAlert('Database Wiped', 'Application restored to clean state.');
               }
             }

@@ -47,3 +47,27 @@ export async function performDriveSync(
     return false;
   }
 }
+
+export async function performDrivePush(
+  token: string,
+  password: string,
+  onProgress?: (msg: string) => void
+): Promise<boolean> {
+  try {
+    if (onProgress) onProgress('Checking Google Drive...');
+    const remoteFile = await findStateFileId(token);
+    
+    if (onProgress) onProgress('Encrypting local database...');
+    const encryptedData = await exportVaultBackupToString(password);
+    
+    if (onProgress) onProgress('Uploading encrypted backup to Google Drive...');
+    await uploadStateToDrive(token, remoteFile ? remoteFile.id : null, encryptedData);
+    
+    if (onProgress) onProgress('Cloud push completed successfully.');
+    return true;
+  } catch (error: any) {
+    console.error('Drive push error:', error);
+    if (onProgress) onProgress(`Push failed: ${error.message}`);
+    return false;
+  }
+}
