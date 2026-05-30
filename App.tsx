@@ -228,17 +228,42 @@ export default function App() {
     }
   };
 
-  // Fix D1: Called by SettingsModal after a successful manual import.
+  // Fix D1/Issue 3: Called by SettingsModal after a successful manual import.
   // Reloads settings and logs from AsyncStorage into React state so the imported
-  // data is immediately visible without requiring a restart, then pushes to Drive.
+  // data is immediately visible without requiring a restart. Then, if auto-sync
+  // is enabled, pushes the cleaned data (with cleared tombstones) to the cloud
+  // FIRST, followed by a full pull-merge-push sync to safely integrate other devices.
   const handleImportComplete = async () => {
     const storedSettings = await loadSettings();
     const storedLogs = await loadLogs();
     setSettings(storedSettings);
     setLogs(storedLogs);
     console.log('Import complete: React state reloaded from AsyncStorage.');
-    // Push the freshly merged state to cloud so startup sync won't overwrite it
-    handleCloudAutoPush();
+
+    if (accessToken && storedSettings?.googleDriveAutoSyncEnabled !== false) {
+      const savedPwd = await SecureStore.getItemAsync('nexus_vault_password');
+      if (savedPwd) {
+        try {
+          setIsSyncing(true); // Show sync indicator if visible
+          // Push FIRST to upload cleaned tombstone set to cloud,
+          // preventing re-introduction of cleared tombstones during full sync
+          await performDrivePush(accessToken, savedPwd);
+          // Then do a full sync to pull any newer data from other devices
+          await performDriveSync(accessToken, savedPwd);
+          
+          // Reload to pick up any merged data from the pull
+          const postSyncSettings = await loadSettings();
+          const postSyncLogs = await loadLogs();
+          setSettings(postSyncSettings);
+          setLogs(postSyncLogs);
+          await AsyncStorage.removeItem('nexus_sync_dirty');
+        } catch (err) {
+          console.log('Post-import sync failed (will retry on next startup):', err);
+        } finally {
+          setIsSyncing(false);
+        }
+      }
+    }
   };
 
   useEffect(() => {

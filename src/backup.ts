@@ -234,11 +234,33 @@ export async function importVaultBackupFromString(fileStr: string, password: str
   const remoteTombstones: Tombstone[] = state.tombstones || [];
   const mergedTombstones = mergeTombstones(localTombstones, remoteTombstones);
 
+  // Build set of all item IDs present in the import file's data arrays
+  const importedItemIds = new Set<string>();
+  for (const item of (state.hydration_history || [])) { if (item?.id) importedItemIds.add(String(item.id)); }
+  for (const item of (state.workout_sessions || [])) { if (item?.id) importedItemIds.add(String(item.id)); }
+  for (const item of (state.workout_templates || [])) { if (item?.id) importedItemIds.add(String(item.id)); }
+  for (const item of (state.custom_exercises || [])) { if (item?.id) importedItemIds.add(String(item.id)); }
+
+  // Build set of tombstone IDs from the import file itself
+  const importFileTombstoneIds = new Set<string>(
+    remoteTombstones.map(t => String(t.id))
+  );
+
+  // Remove local-only tombstones that target items present in the import file.
+  // Rationale: The user explicitly chose to import this backup — imported items
+  // should override local deletions. Only the import file's own tombstones should apply.
+  const importAwareTombstones = mergedTombstones.filter(t => {
+    if (importedItemIds.has(String(t.id)) && !importFileTombstoneIds.has(String(t.id))) {
+      return false; // local-only tombstone for an imported item → remove
+    }
+    return true;
+  });
+
   // 4. Merge hydration logs and workouts (Finding #1: tombstone-aware)
-  const mergedLogs = mergeById(localLogs, state.hydration_history, 'id', mergedTombstones, 'timestamp');
-  const mergedSessions = mergeById(localSessions, state.workout_sessions || [], 'id', mergedTombstones, 'startTime');
-  const mergedTemplates = mergeById(localTemplates, state.workout_templates || [], 'id', mergedTombstones);
-  const mergedCustomExercises = mergeById(localCustomExercises, state.custom_exercises || [], 'id', mergedTombstones);
+  const mergedLogs = mergeById(localLogs, state.hydration_history, 'id', importAwareTombstones, 'timestamp');
+  const mergedSessions = mergeById(localSessions, state.workout_sessions || [], 'id', importAwareTombstones, 'startTime');
+  const mergedTemplates = mergeById(localTemplates, state.workout_templates || [], 'id', importAwareTombstones);
+  const mergedCustomExercises = mergeById(localCustomExercises, state.custom_exercises || [], 'id', importAwareTombstones);
 
   // 5. Merge settings (prefer remote if remote is newer, but preserve customLiquids and decafPrefs)
   const remoteSettings = state.settings || {};
@@ -275,7 +297,7 @@ export async function importVaultBackupFromString(fileStr: string, password: str
     templates: mergedTemplates,
     customExercises: mergedCustomExercises,
     defaults: mergedDefaults,
-    tombstones: mergedTombstones,
+    tombstones: importAwareTombstones,
   });
   await AsyncStorage.setItem(MERGE_STAGING_KEY, stagingPayload);
 
@@ -286,7 +308,7 @@ export async function importVaultBackupFromString(fileStr: string, password: str
   await saveTemplates(mergedTemplates);
   await saveCustomExercises(mergedCustomExercises);
   await saveExerciseDefaults(mergedDefaults);
-  await saveTombstones(mergedTombstones);
+  await saveTombstones(importAwareTombstones);
 
   // Clear staging key — save completed successfully
   await AsyncStorage.removeItem(MERGE_STAGING_KEY);

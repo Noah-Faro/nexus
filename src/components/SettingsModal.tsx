@@ -47,8 +47,11 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
   const { accessToken, request, promptAsync, logout } = useGoogleDriveAuth();
   const [syncStatus, setSyncStatus] = useState('');
 
+  // Track previous visibility to detect open transition
+  const prevVisibleRef = React.useRef(false);
+
   useEffect(() => {
-    if (visible) {
+    if (visible && settings) {
       setUserName(settings.userName || '');
       setWeight(String(settings.weight));
       setWeightUnit(settings.weightUnit);
@@ -61,9 +64,14 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
       setGoogleDriveAutoSyncEnabled(settings.googleDriveAutoSyncEnabled !== false);
       setWakeError(false);
       setSleepError(false);
-      setBackupError('');
-      setBackupSuccess('');
-      setSyncStatus('');
+      
+      // Only clear backup status messages when the modal OPENS (false → true),
+      // not on every settings prop change while already open
+      if (!prevVisibleRef.current) {
+        setBackupError('');
+        setBackupSuccess('');
+        setSyncStatus('');
+      }
 
       // Pre-fill saved backup password
       SecureStore.getItemAsync('nexus_vault_password')
@@ -72,6 +80,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
         })
         .catch(console.error);
     }
+    prevVisibleRef.current = visible;
   }, [visible, settings]);
 
   // Fix C: Safety timeout — if isProcessingBackup gets stuck (e.g. share sheet doesn't resolve
