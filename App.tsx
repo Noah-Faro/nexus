@@ -35,6 +35,7 @@ import PasswordPromptModal from './src/components/PasswordPromptModal';
 import NexusVault from './src/components/NexusVault';
 import BrewLabSheet from './src/components/BrewLabSheet';
 import TrainingApp from './src/components/TrainingApp';
+import SyncIndicator from './src/components/SyncIndicator';
 import { useGoogleDriveAuth } from './src/googleAuth';
 import { performDriveSync, performDrivePush } from './src/sync';
 import { findStateFileId } from './src/googleDrive';
@@ -95,13 +96,15 @@ export default function App() {
                 console.log('Silent auto-sync completed successfully');
                 setIsSyncing(false);
                 return;
-              } else {
-                // Stored password might be invalid (e.g. changed on another device), clear it
-                await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
               }
             }
-          } catch (err) {
-            console.log('Error reading stored password for silent sync:', err);
+          } catch (err: any) {
+            console.log('Error doing silent sync:', err);
+            // If it failed because of wrong password, clear it so the user can re-enter
+            const errMsg = err?.message || '';
+            if (errMsg.includes('Wrong password') || errMsg.includes('password') || errMsg.includes('payload')) {
+              await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
+            }
           } finally {
             setIsSyncing(false);
           }
@@ -594,6 +597,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ExpoStatusBar style="light" />
+      <SyncIndicator isSyncing={isSyncing} />
       <View style={styles.container}>
         {activeApp === 'vault' ? (
           <NexusVault 

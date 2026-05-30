@@ -1,6 +1,17 @@
 import { findStateFileId, uploadStateToDrive, downloadStateFromDrive } from './googleDrive';
 import { exportVaultBackupToString, importVaultBackupFromString } from './backup';
 
+function mapSyncError(error: any): string {
+  const msg = error?.message || '';
+  if (msg.includes('Incorrect password') || msg.includes('Incorrect password or corrupt payload.')) {
+    return 'Wrong password. Enter the same password you used when first syncing.';
+  }
+  if (msg.includes('Network request failed') || msg.includes('Failed to fetch') || msg.includes('fetch')) {
+    return 'Could not connect to Google Drive. Check your internet connection.';
+  }
+  return msg || 'An unknown error occurred during sync.';
+}
+
 export async function performDriveSync(
   token: string, 
   passwordOrPrompt: string | (() => Promise<string>),
@@ -10,11 +21,9 @@ export async function performDriveSync(
     if (onProgress) onProgress('Checking Google Drive...');
     const remoteFile = await findStateFileId(token);
 
-    // Let's assume we have a way to get the local last_saved time.
-    // For now, if no remote file exists, we just upload.
+    // If no remote file exists, we just upload local state as the initial backup.
     if (!remoteFile) {
       if (onProgress) onProgress('Creating backup on Google Drive...');
-      // We need a password to encrypt. If it's a prompt, call it.
       const pwd = typeof passwordOrPrompt === 'function' ? await passwordOrPrompt() : passwordOrPrompt;
       if (!pwd) throw new Error('Password required for initial sync');
       
@@ -24,12 +33,7 @@ export async function performDriveSync(
       return true;
     }
 
-    // A remote file exists. We should compare timestamps if we had them easily accessible,
-    // but for simplicity and safety, if the user triggered this manually, we can prompt 
-    // them whether to push or pull, OR we just do a simple pull if remote is newer.
-    // Given the constraints, let's just do a pull if they hit sync, or perhaps 
-    // we need to read the remote file and restore.
-
+    // A remote file exists, download and import it.
     if (onProgress) onProgress('Downloading backup from Google Drive...');
     const remoteData = await downloadStateFromDrive(token, remoteFile.id);
     
@@ -43,8 +47,9 @@ export async function performDriveSync(
     return true;
   } catch (error: any) {
     console.error('Drive sync error:', error);
-    if (onProgress) onProgress(`Sync failed: ${error.message}`);
-    return false;
+    const friendlyMsg = mapSyncError(error);
+    if (onProgress) onProgress(`Sync failed: ${friendlyMsg}`);
+    throw new Error(friendlyMsg);
   }
 }
 
@@ -67,7 +72,8 @@ export async function performDrivePush(
     return true;
   } catch (error: any) {
     console.error('Drive push error:', error);
-    if (onProgress) onProgress(`Push failed: ${error.message}`);
-    return false;
+    const friendlyMsg = mapSyncError(error);
+    if (onProgress) onProgress(`Push failed: ${friendlyMsg}`);
+    throw new Error(friendlyMsg);
   }
 }

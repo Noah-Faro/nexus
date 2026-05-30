@@ -1,11 +1,34 @@
 // src/googleDrive.ts
+
+async function handleDriveError(res: Response, context: string): Promise<never> {
+  let rawText = '';
+  try {
+    rawText = await res.text();
+  } catch (e) {}
+  
+  console.error(`Google Drive API error during ${context} [status ${res.status}]:`, rawText);
+  
+  let errMsg = '';
+  if (res.status === 401) {
+    errMsg = 'Your Google session has expired. Please reconnect Google Drive in Settings.';
+  } else if (res.status === 403) {
+    errMsg = 'Google Drive access was denied. Please reconnect Google Drive.';
+  } else if (res.status === 404) {
+    errMsg = 'Your cloud backup was not found. It may have been deleted from Google Drive.';
+  } else {
+    errMsg = 'Could not reach Google Drive. Check your internet connection and try again.';
+  }
+  
+  throw new Error(errMsg);
+}
+
 export async function findStateFileId(token: string): Promise<{ id: string, modifiedTime: string } | null> {
   const q = encodeURIComponent("name='state.nexus' and 'appDataFolder' in parents");
   const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=appDataFolder&fields=files(id,modifiedTime)`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!res.ok) {
-    throw new Error(`Failed to find state file: ${await res.text()}`);
+    await handleDriveError(res, 'finding state file');
   }
   const data = await res.json();
   return data.files && data.files.length > 0 ? data.files[0] : null;
@@ -42,7 +65,7 @@ export async function uploadStateToDrive(token: string, fileId: string | null, e
     body
   });
   if (!res.ok) {
-    throw new Error(`Failed to upload state: ${await res.text()}`);
+    await handleDriveError(res, 'uploading state');
   }
   return res.json();
 }
@@ -52,7 +75,7 @@ export async function downloadStateFromDrive(token: string, fileId: string): Pro
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!res.ok) {
-    throw new Error(`Failed to download state: ${await res.text()}`);
+    await handleDriveError(res, 'downloading state');
   }
   return res.text();
 }

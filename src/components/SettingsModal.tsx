@@ -57,6 +57,16 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
       setGoogleDriveAutoSyncEnabled(settings.googleDriveAutoSyncEnabled !== false);
       setWakeError(false);
       setSleepError(false);
+      setBackupError('');
+      setBackupSuccess('');
+      setSyncStatus('');
+
+      // Pre-fill saved backup password
+      SecureStore.getItemAsync('nexus_vault_password')
+        .then(pwd => {
+          if (pwd) setBackupPassword(pwd);
+        })
+        .catch(console.error);
     }
   }, [visible, settings]);
 
@@ -158,17 +168,14 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
     setBackupSuccess('');
     
     try {
-      const success = await performDriveSync(accessToken, backupPassword, (msg) => {
+      await performDriveSync(accessToken, backupPassword, (msg) => {
         setSyncStatus(msg);
       });
-      if (success) {
-        // Save password securely in device keychain for seamless startup auto-syncs
-        await SecureStore.setItemAsync('nexus_vault_password', backupPassword).catch(console.error);
-        setBackupSuccess('Cloud sync completed successfully!');
-        setSyncStatus('');
-      } else {
-        setBackupError('Cloud sync failed.');
-      }
+      
+      // Save password securely in device keychain for seamless startup auto-syncs
+      await SecureStore.setItemAsync('nexus_vault_password', backupPassword).catch(console.error);
+      setBackupSuccess('Cloud sync completed successfully!');
+      setSyncStatus('');
     } catch (err: any) {
       setBackupError(err.message || 'Sync failed');
       setSyncStatus('');
@@ -382,6 +389,9 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                     autoCorrect={false}
                   />
                 </View>
+                <Text style={styles.passwordHelper}>
+                  This password encrypts your cloud backup. Use the same password on all devices.
+                </Text>
 
                 {!!backupError && <Text style={styles.errorText}>{backupError}</Text>}
                 {!!backupSuccess && <Text style={[styles.errorText, { color: theme.colors.accentGreen }]}>{backupSuccess}</Text>}
@@ -742,5 +752,13 @@ const styles = StyleSheet.create({
   },
   cloudSyncContainer: {
     marginTop: 8,
+  },
+  passwordHelper: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textSubtle,
+    marginTop: 6,
+    paddingHorizontal: 4,
+    lineHeight: 16,
   },
 });
