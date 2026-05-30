@@ -78,8 +78,11 @@ export default function App() {
   const pushInFlight = useRef(false); // Finding #3: push debounce lock
 
   useEffect(() => {
-    // Only run this check once when app mounts and accessToken is available and auto-sync is enabled
-    if (accessToken && !hasCheckedSync.current && settings?.googleDriveAutoSyncEnabled !== false) {
+    // Only run this check once when app mounts, accessToken is available, settings are loaded,
+    // and auto-sync is explicitly enabled. Guard against null settings (Fix A: settings starts
+    // as null on mount; null?.googleDriveAutoSyncEnabled !== false evaluates to true, causing
+    // the sync to fire before settings have loaded from AsyncStorage).
+    if (accessToken && !hasCheckedSync.current && settings && settings.googleDriveAutoSyncEnabled !== false) {
       hasCheckedSync.current = true;
       
       const checkAndSync = async () => {
@@ -89,17 +92,26 @@ export default function App() {
           // Finding #2: Replay any interrupted merge before syncing
           await replayPendingMerge();
           
-          // 1. If local state is dirty, attempt to push first before pulling/merging
-          const isDirty = await AsyncStorage.getItem('nexus_sync_dirty');
           const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
           
+          // Fix E: Check dirty flag — if offline edits exist, do a full pull-merge-push instead
+          // of push-only. This prevents Device A's pushed changes from being overwritten by
+          // Device B blindly pushing its own stale state on reconnect.
+          const isDirty = await AsyncStorage.getItem('nexus_sync_dirty');
           if (isDirty === 'true' && savedPassword) {
-            console.log('Detected unsynced offline changes (dirty flag). Pushing to cloud first...');
+            console.log('Detected unsynced offline changes (dirty flag). Running full sync to merge...');
             try {
-              await performDrivePush(accessToken, savedPassword, (msg) => console.log('Pre-sync push:', msg));
-              console.log('Successfully pushed unsynced changes to cloud.');
-            } catch (pushErr) {
-              console.log('Failed to push unsynced changes on startup. Will proceed with pull/merge.', pushErr);
+              const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Dirty sync:', msg));
+              if (success) {
+                const storedSettings = await loadSettings();
+                const storedLogs = await loadLogs();
+                setSettings(storedSettings);
+                setLogs(storedLogs);
+                console.log('Dirty-flag full sync completed successfully.');
+                return;
+              }
+            } catch (dirtyErr) {
+              console.log('Dirty-flag full sync failed. Will proceed with normal pull/merge.', dirtyErr);
             }
           }
           
@@ -190,6 +202,43 @@ export default function App() {
         setIsSyncing(false);
       }
     }
+  };
+
+  // Fix B: Triggered when user toggles Auto-Sync ON in settings.
+  // Performs an immediate full pull-merge-push sync so the device is up to date right away.
+  const handleAutoSyncEnabled = async () => {
+    if (!accessToken) return;
+    setIsSyncing(true);
+    try {
+      const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
+      if (savedPassword) {
+        const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Auto-sync toggle sync:', msg));
+        if (success) {
+          const storedSettings = await loadSettings();
+          const storedLogs = await loadLogs();
+          setSettings(storedSettings);
+          setLogs(storedLogs);
+          console.log('Auto-sync enabled: immediate sync completed.');
+        }
+      }
+    } catch (err) {
+      console.log('Auto-sync enable sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Fix D1: Called by SettingsModal after a successful manual import.
+  // Reloads settings and logs from AsyncStorage into React state so the imported
+  // data is immediately visible without requiring a restart, then pushes to Drive.
+  const handleImportComplete = async () => {
+    const storedSettings = await loadSettings();
+    const storedLogs = await loadLogs();
+    setSettings(storedSettings);
+    setLogs(storedLogs);
+    console.log('Import complete: React state reloaded from AsyncStorage.');
+    // Push the freshly merged state to cloud so startup sync won't overwrite it
+    handleCloudAutoPush();
   };
 
   useEffect(() => {
@@ -728,6 +777,8 @@ export default function App() {
           onClose={() => setSettingsVisible(false)}
           settings={settings}
           onSave={handleSaveSettings}
+          onAutoSyncEnabled={handleAutoSyncEnabled}
+          onImportComplete={handleImportComplete}
         />
 
         {/* Custom Obsidian Celebration Modal */}

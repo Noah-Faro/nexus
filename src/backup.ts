@@ -293,6 +293,12 @@ export async function importVaultBackupFromString(fileStr: string, password: str
 
   // Prune old tombstones (90 days)
   await pruneTombstones(90);
+
+  // Fix D2: Mark local state as dirty after import. If auto-sync is enabled, App.tsx will
+  // call handleCloudAutoPush immediately via onImportComplete. But if auto-sync is off or
+  // the push somehow fails, the dirty flag ensures the NEXT startup does a full push-merge
+  // rather than overwriting the import by blindly pulling the old cloud state.
+  await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
 }
 
 export async function importVaultBackup(fileUri: string, password: string): Promise<void> {

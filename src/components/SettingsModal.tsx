@@ -17,9 +17,13 @@ interface SettingsModalProps {
   onClose: () => void;
   settings: UserSettings;
   onSave: (settings: UserSettings) => void;
+  // Fix B: Called when user enables Auto-Sync (while connected) — triggers immediate full sync
+  onAutoSyncEnabled?: () => void;
+  // Fix D1: Called after a successful manual import — reloads React state from AsyncStorage
+  onImportComplete?: () => void;
 }
 
-export default function SettingsModal({ visible, onClose, settings, onSave }: SettingsModalProps) {
+export default function SettingsModal({ visible, onClose, settings, onSave, onAutoSyncEnabled, onImportComplete }: SettingsModalProps) {
   const [userName, setUserName] = useState(settings.userName || '');
   const [weight, setWeight] = useState(String(settings.weight));
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>(settings.weightUnit);
@@ -69,6 +73,67 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
         .catch(console.error);
     }
   }, [visible, settings]);
+
+  // Fix C: Safety timeout — if isProcessingBackup gets stuck (e.g. share sheet doesn't resolve
+  // on some iOS versions), auto-reset after 30 seconds so buttons never stay greyed out forever.
+  useEffect(() => {
+    if (!isProcessingBackup) return;
+    const timer = setTimeout(() => {
+      setIsProcessingBackup(false);
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [isProcessingBackup]);
+
+  // Fix B: Track previous accessToken to detect connect/disconnect transitions.
+  // When the user connects Google Drive (null → token), auto-enable auto-sync and save immediately.
+  // When the user disconnects (token → null), auto-disable auto-sync and save immediately.
+  const prevAccessTokenRef = React.useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevAccessTokenRef.current;
+    // Skip the very first render (undefined means not yet initialized)
+    if (prev === undefined) {
+      prevAccessTokenRef.current = accessToken;
+      return;
+    }
+    if (!prev && accessToken) {
+      // Just connected to Google Drive — auto-enable auto-sync and save
+      setGoogleDriveAutoSyncEnabled(true);
+      const updated: UserSettings = {
+        ...settings,
+        userName: userName.trim(),
+        weight: parseFloat(weight) || 70,
+        weightUnit,
+        activityLevel,
+        useAutoGoal,
+        customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
+        wakeTime: wakeTime.trim() || '07:00',
+        sleepTime: sleepTime.trim() || '22:00',
+        lagNotificationsEnabled,
+        googleDriveAutoSyncEnabled: true,
+      };
+      onSave(updated);
+      // Immediate sync fires via handleAutoSyncEnabled in App.tsx
+      onAutoSyncEnabled?.();
+    } else if (prev && !accessToken) {
+      // Just disconnected from Google Drive — auto-disable auto-sync and save
+      setGoogleDriveAutoSyncEnabled(false);
+      const updated: UserSettings = {
+        ...settings,
+        userName: userName.trim(),
+        weight: parseFloat(weight) || 70,
+        weightUnit,
+        activityLevel,
+        useAutoGoal,
+        customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
+        wakeTime: wakeTime.trim() || '07:00',
+        sleepTime: sleepTime.trim() || '22:00',
+        lagNotificationsEnabled,
+        googleDriveAutoSyncEnabled: false,
+      };
+      onSave(updated);
+    }
+    prevAccessTokenRef.current = accessToken;
+  }, [accessToken]);
 
   const handleSave = () => {
     const timeRegex = /^(0[0-9]|1[0-9]|2[0-3]|[0-9]):[0-5][0-9]$/;
@@ -124,8 +189,10 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
     setIsProcessingBackup(true);
     try {
       await exportVaultBackup(backupPassword);
+      // Fix C: Do NOT clear the password — keep it filled for repeated export/import without re-typing.
+      // The 30s timeout safety net in the useEffect above handles any case where the share sheet
+      // fails to resolve and setIsProcessingBackup(false) in finally doesn't fire.
       setBackupSuccess('Export successful!');
-      setBackupPassword('');
     } catch (err: any) {
       setBackupError(err.message || 'Export failed');
     } finally {
@@ -144,8 +211,11 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
     try {
       const imported = await pickAndImportBackup(backupPassword);
       if (imported) {
-        setBackupSuccess('Import successful! Restart app to apply.');
-        setBackupPassword('');
+        // Fix D1: Don't tell user to restart — reload state immediately via callback.
+        // onImportComplete reloads settings+logs in App.tsx and triggers an auto-push
+        // to ensure Drive is updated with the merged import before next startup.
+        setBackupSuccess('Import successful! Data merged.');
+        onImportComplete?.();
       } else {
         setBackupError('Import cancelled: No file selected.');
       }
@@ -426,19 +496,45 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
                   
                   <View style={[styles.row, { paddingHorizontal: 0, paddingVertical: 12, marginTop: 4 }]}>
                     <View style={styles.textStack}>
-                      <Text style={[styles.label, { fontSize: 16 }]}>Auto-Sync on Startup</Text>
-                      <Text style={styles.subtext}>
-                        Automatically sync and decrypt from Google Drive on launch
+                      {/* Fix B: Renamed from "Auto-Sync on Startup" — the toggle controls both
+                          startup sync AND background auto-push after every mutation. */}
+                      <Text style={[styles.label, { fontSize: 16, opacity: !accessToken ? 0.4 : 1 }]}>Auto-Sync</Text>
+                      <Text style={[styles.subtext, { opacity: !accessToken ? 0.4 : 1 }]}>
+                        Automatically sync your vault with Google Drive on launch and after every change
                       </Text>
                     </View>
                     <Switch
                       value={googleDriveAutoSyncEnabled}
                       onValueChange={(val) => {
+                        if (!accessToken) return; // Should not be reachable, but guard anyway
                         setGoogleDriveAutoSyncEnabled(val);
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        // Fix B: Save immediately — don't wait for the "Save Changes" button.
+                        // The toggle must persist right away since it controls sync behavior.
+                        const updated: UserSettings = {
+                          ...settings,
+                          userName: userName.trim(),
+                          weight: parseFloat(weight) || 70,
+                          weightUnit,
+                          activityLevel,
+                          useAutoGoal,
+                          customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
+                          wakeTime: wakeTime.trim() || '07:00',
+                          sleepTime: sleepTime.trim() || '22:00',
+                          lagNotificationsEnabled,
+                          googleDriveAutoSyncEnabled: val,
+                        };
+                        onSave(updated);
+                        // If enabling, trigger an immediate full sync
+                        if (val) {
+                          onAutoSyncEnabled?.();
+                        }
                       }}
                       trackColor={{ false: theme.colors.surface, true: '#34C759' }}
                       ios_backgroundColor={theme.colors.surface}
+                      // Fix B: Disable the switch when not connected to Google Drive.
+                      // It's meaningless to enable auto-sync without a Drive connection.
+                      disabled={!accessToken}
                     />
                   </View>
                   
@@ -470,7 +566,11 @@ export default function SettingsModal({ visible, onClose, settings, onSave }: Se
 
                         <TouchableOpacity 
                           style={[styles.backupBtn, styles.backupBtnSecondary, { flex: 0.5 }]} 
-                          onPress={logout}
+                          onPress={async () => {
+                            // Fix B: After logout, the accessToken transition useEffect will
+                            // automatically set googleDriveAutoSyncEnabled = false and save.
+                            await logout();
+                          }}
                           disabled={isProcessingBackup}
                         >
                           <Text style={[styles.backupBtnText, { color: theme.colors.text }]}>Disconnect</Text>
