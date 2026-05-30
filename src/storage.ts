@@ -52,7 +52,11 @@ export async function loadSettings(): Promise<UserSettings> {
 }
 
 export async function saveSettings(settings: UserSettings): Promise<void> {
-  return saveToStorage<UserSettings>(SETTINGS_KEY, settings);
+  const updatedSettings = {
+    ...settings,
+    updatedAt: new Date().toISOString()
+  };
+  return saveToStorage<UserSettings>(SETTINGS_KEY, updatedSettings);
 }
 
 export async function loadLogs(): Promise<DrinkLog[]> {

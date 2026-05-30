@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { findStateFileId, uploadStateToDrive, downloadStateFromDrive } from './googleDrive';
 import { exportVaultBackupToString, importVaultBackupFromString } from './backup';
 
@@ -29,6 +30,10 @@ export async function performDriveSync(
       
       const encryptedData = await exportVaultBackupToString(pwd);
       await uploadStateToDrive(token, null, encryptedData);
+      
+      // Success: clear dirty flag
+      await AsyncStorage.setItem('nexus_sync_dirty', 'false').catch(console.error);
+      
       if (onProgress) onProgress('Backup created successfully.');
       return true;
     }
@@ -37,11 +42,26 @@ export async function performDriveSync(
     if (onProgress) onProgress('Downloading backup from Google Drive...');
     const remoteData = await downloadStateFromDrive(token, remoteFile.id);
     
-    if (onProgress) onProgress('Decrypting and importing...');
+    if (onProgress) onProgress('Decrypting and merging...');
     const pwd = typeof passwordOrPrompt === 'function' ? await passwordOrPrompt() : passwordOrPrompt;
     if (!pwd) throw new Error('Password required to import sync');
     
+    // Perform merge-import
     await importVaultBackupFromString(remoteData, pwd);
+    
+    // Push-After-Pull: Upload merged state back to drive immediately
+    try {
+      if (onProgress) onProgress('Syncing merged state back to cloud...');
+      const encryptedData = await exportVaultBackupToString(pwd);
+      await uploadStateToDrive(token, remoteFile.id, encryptedData);
+      
+      // Success: clear dirty flag
+      await AsyncStorage.setItem('nexus_sync_dirty', 'false').catch(console.error);
+    } catch (pushErr) {
+      console.warn('Pull-merge succeeded but failed pushing merged state back. Flagging as dirty.', pushErr);
+      await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
+      throw pushErr;
+    }
     
     if (onProgress) onProgress('Sync completed successfully!');
     return true;
@@ -68,10 +88,17 @@ export async function performDrivePush(
     if (onProgress) onProgress('Uploading encrypted backup to Google Drive...');
     await uploadStateToDrive(token, remoteFile ? remoteFile.id : null, encryptedData);
     
+    // Success: clear dirty flag
+    await AsyncStorage.setItem('nexus_sync_dirty', 'false').catch(console.error);
+    
     if (onProgress) onProgress('Cloud push completed successfully.');
     return true;
   } catch (error: any) {
     console.error('Drive push error:', error);
+    
+    // Failure: set dirty flag so we retry on next startup/network recovery
+    await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
+    
     const friendlyMsg = mapSyncError(error);
     if (onProgress) onProgress(`Push failed: ${friendlyMsg}`);
     throw new Error(friendlyMsg);

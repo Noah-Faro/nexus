@@ -25,6 +25,7 @@ export interface UserSettings {
   lagNotificationsEnabled?: boolean; // toggle smart push notifications
   decafPrefs?: Record<string, boolean>; // decaf preferences dictionary
   googleDriveAutoSyncEnabled?: boolean; // toggle auto-sync on startup
+  updatedAt?: string;                 // ISO timestamp of when settings were last saved
 }
 
 export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine';

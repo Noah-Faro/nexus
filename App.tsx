@@ -40,6 +40,7 @@ import { useGoogleDriveAuth } from './src/googleAuth';
 import { performDriveSync, performDrivePush } from './src/sync';
 import { findStateFileId } from './src/googleDrive';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -77,13 +78,29 @@ export default function App() {
     // Only run this check once when app mounts and accessToken is available and auto-sync is enabled
     if (accessToken && !hasCheckedSync.current && settings?.googleDriveAutoSyncEnabled !== false) {
       hasCheckedSync.current = true;
-      findStateFileId(accessToken).then(async (remoteFile) => {
-        if (remoteFile) {
-          // Attempt silent sync using saved password in secure storage
-          try {
-            const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
+      
+      const checkAndSync = async () => {
+        try {
+          setIsSyncing(true);
+          
+          // 1. If local state is dirty, attempt to push first before pulling/merging
+          const isDirty = await AsyncStorage.getItem('nexus_sync_dirty');
+          const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
+          
+          if (isDirty === 'true' && savedPassword) {
+            console.log('Detected unsynced offline changes (dirty flag). Pushing to cloud first...');
+            try {
+              await performDrivePush(accessToken, savedPassword, (msg) => console.log('Pre-sync push:', msg));
+              console.log('Successfully pushed unsynced changes to cloud.');
+            } catch (pushErr) {
+              console.log('Failed to push unsynced changes on startup. Will proceed with pull/merge.', pushErr);
+            }
+          }
+          
+          // 2. Check if a remote backup exists
+          const remoteFile = await findStateFileId(accessToken);
+          if (remoteFile) {
             if (savedPassword) {
-              setIsSyncing(true);
               const success = await performDriveSync(accessToken, savedPassword, (msg) => {
                 console.log('Silent sync:', msg);
               });
@@ -94,27 +111,26 @@ export default function App() {
                 setSettings(storedSettings);
                 setLogs(storedLogs);
                 console.log('Silent auto-sync completed successfully');
-                setIsSyncing(false);
                 return;
               }
             }
-          } catch (err: any) {
-            console.log('Error doing silent sync:', err);
-            // If it failed because of wrong password, clear it so the user can re-enter
-            const errMsg = err?.message || '';
-            if (errMsg.includes('Wrong password') || errMsg.includes('password') || errMsg.includes('payload')) {
-              await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
-            }
-          } finally {
-            setIsSyncing(false);
+            
+            // Found a remote file on startup, but no saved password or silent sync failed, prompt for password
+            setPasswordPromptVisible(true);
           }
-
-          // Found a remote file on startup, prompt for password to pull changes
-          setPasswordPromptVisible(true);
+        } catch (err: any) {
+          console.log('Error doing silent sync:', err);
+          // If it failed because of wrong password, clear it so the user can re-enter
+          const errMsg = err?.message || '';
+          if (errMsg.includes('Wrong password') || errMsg.includes('password') || errMsg.includes('payload')) {
+            await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
+          }
+        } finally {
+          setIsSyncing(false);
         }
-      }).catch(err => {
-        console.log('Silent auto-sync check failed:', err);
-      });
+      };
+
+      checkAndSync();
     }
   }, [accessToken, settings]);
 
@@ -153,12 +169,15 @@ export default function App() {
       try {
         const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
         if (savedPassword) {
+          setIsSyncing(true);
           console.log('Starting silent background cloud push...');
           await performDrivePush(accessToken, savedPassword);
           console.log('Silent background cloud push completed.');
         }
       } catch (err) {
         console.log('Silent background cloud push failed:', err);
+      } finally {
+        setIsSyncing(false);
       }
     }
   };

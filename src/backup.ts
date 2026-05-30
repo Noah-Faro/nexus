@@ -61,6 +61,47 @@ export async function exportVaultBackup(password: string): Promise<void> {
   }
 }
 
+function mergeById<T>(
+  localItems: T[],
+  remoteItems: T[],
+  idKey: keyof T,
+  timestampKey?: keyof T
+): T[] {
+  const mergedMap = new Map<any, T>();
+  
+  const localList = Array.isArray(localItems) ? localItems : [];
+  const remoteList = Array.isArray(remoteItems) ? remoteItems : [];
+  
+  for (const item of localList) {
+    if (item && item[idKey] !== undefined) {
+      mergedMap.set(item[idKey], item);
+    }
+  }
+  
+  for (const item of remoteList) {
+    if (!item || item[idKey] === undefined) continue;
+    const id = item[idKey];
+    
+    if (mergedMap.has(id)) {
+      const existing = mergedMap.get(id)!;
+      if (timestampKey) {
+        const localTs = (existing[timestampKey] as unknown as number) || 0;
+        const remoteTs = (item[timestampKey] as unknown as number) || 0;
+        if (remoteTs > localTs) {
+          mergedMap.set(id, item);
+        }
+      } else {
+        // Prefer remote for templates/custom exercises to ensure edits sync
+        mergedMap.set(id, item);
+      }
+    } else {
+      mergedMap.set(id, item);
+    }
+  }
+  
+  return Array.from(mergedMap.values());
+}
+
 export async function importVaultBackupFromString(fileStr: string, password: string): Promise<void> {
   const backupData = JSON.parse(fileStr);
 
@@ -84,13 +125,53 @@ export async function importVaultBackupFromString(fileStr: string, password: str
     throw new Error('Backup payload is missing critical top-level tracking keys.');
   }
 
-  // 3. Restore state (Merge/Replace logic - currently Replace All for simplicity)
-  await saveSettings(state.settings);
-  await saveLogs(state.hydration_history);
-  await saveWorkoutSessions(state.workout_sessions);
-  await saveTemplates(state.workout_templates);
-  if (state.custom_exercises) await saveCustomExercises(state.custom_exercises);
-  if (state.exercise_defaults) await saveExerciseDefaults(state.exercise_defaults);
+  // 3. Load current local state
+  const localSettings = await loadSettings();
+  const localLogs = await loadLogs();
+  const localSessions = await loadWorkoutSessions();
+  const localTemplates = await loadTemplates();
+  const localCustomExercises = await loadCustomExercises();
+  const localDefaults = await loadExerciseDefaults();
+
+  // 4. Merge hydration logs and workouts
+  const mergedLogs = mergeById(localLogs, state.hydration_history, 'id', 'timestamp');
+  const mergedSessions = mergeById(localSessions, state.workout_sessions || [], 'id', 'startTime');
+  const mergedTemplates = mergeById(localTemplates, state.workout_templates || [], 'id');
+  const mergedCustomExercises = mergeById(localCustomExercises, state.custom_exercises || [], 'id');
+
+  // 5. Merge settings (prefer remote if remote is newer, but preserve customLiquids and decafPrefs)
+  const remoteSettings = state.settings || {};
+  const remoteTimestamp = remoteSettings.updatedAt || state.exportedAt || '';
+  const localTimestamp = localSettings.updatedAt || '';
+
+  let finalSettings = { ...localSettings };
+  if (remoteTimestamp > localTimestamp) {
+    finalSettings = { ...remoteSettings };
+  }
+
+  // Ensure custom liquids and decaf preferences are merged from both sides
+  finalSettings.customLiquids = {
+    ...localSettings.customLiquids,
+    ...remoteSettings.customLiquids
+  };
+  finalSettings.decafPrefs = {
+    ...localSettings.decafPrefs,
+    ...remoteSettings.decafPrefs
+  };
+
+  // 6. Merge exercise defaults
+  const mergedDefaults = {
+    ...localDefaults,
+    ...(state.exercise_defaults || {})
+  };
+
+  // 7. Save merged state
+  await saveSettings(finalSettings);
+  await saveLogs(mergedLogs);
+  await saveWorkoutSessions(mergedSessions);
+  await saveTemplates(mergedTemplates);
+  await saveCustomExercises(mergedCustomExercises);
+  await saveExerciseDefaults(mergedDefaults);
 }
 
 export async function importVaultBackup(fileUri: string, password: string): Promise<void> {
