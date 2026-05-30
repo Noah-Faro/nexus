@@ -7,6 +7,7 @@ import { WorkoutTemplate, WorkoutSession, Exercise, ExerciseDefaults } from '../
 import { generateId } from '../utils';
 import { EXERCISE_LIBRARY } from '../exerciseLibrary';
 import { loadTemplates, saveTemplates, loadWorkoutSessions, saveWorkoutSessions, loadCustomExercises, loadExerciseDefaults, loadActiveSession, saveActiveSession } from '../trainingStorage';
+import { recordDeletion } from '../tombstones';
 
 import TrainingSessionView from './TrainingSessionView';
 import TrainingHistory from './TrainingHistory';
@@ -185,6 +186,7 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
   };
 
   const handleDeleteTemplate = async (id: string) => {
+    await recordDeletion(id); // Finding #1: Track deletion for sync
     const updatedTemplates = templates.filter(t => t.id !== id);
     setTemplates(updatedTemplates);
     try {
@@ -250,6 +252,7 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
   );
 
   const handleDeleteSession = async (sessionId: string) => {
+    await recordDeletion(sessionId); // Finding #1: Track deletion for sync
     const updated = sessions.filter(s => s.id !== sessionId);
     setSessions(updated);
     try {

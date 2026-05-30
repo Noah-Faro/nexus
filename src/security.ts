@@ -63,6 +63,18 @@ export function encryptAESGCM(plaintext: string, keyHex: string): string {
 }
 
 /**
+ * Constant-time string comparison to prevent timing side-channel attacks on HMAC verification.
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
  * Decrypts a payload string (iv:hmac:ciphertext) using AES-256-CBC and validates the HMAC integrity.
  */
 export function decryptAESGCM(payload: string, keyHex: string): string {
@@ -76,9 +88,9 @@ export function decryptAESGCM(payload: string, keyHex: string): string {
   const key = CryptoJS.enc.Hex.parse(keyHex);
   const iv = CryptoJS.enc.Hex.parse(ivHexStr);
   
-  // Verify HMAC integrity first (Encrypt-then-MAC)
+  // Verify HMAC integrity first (Encrypt-then-MAC) using constant-time comparison
   const expectedHmac = CryptoJS.HmacSHA256(ivHexStr + ciphertext, key).toString(CryptoJS.enc.Base64);
-  if (hmacB64 !== expectedHmac) {
+  if (!constantTimeEqual(hmacB64, expectedHmac)) {
     throw new Error('Integrity check failed: payload was tampered with');
   }
   

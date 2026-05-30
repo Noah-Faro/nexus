@@ -39,6 +39,8 @@ import SyncIndicator from './src/components/SyncIndicator';
 import { useGoogleDriveAuth } from './src/googleAuth';
 import { performDriveSync, performDrivePush } from './src/sync';
 import { findStateFileId } from './src/googleDrive';
+import { replayPendingMerge } from './src/backup';
+import { recordDeletion } from './src/tombstones';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -73,6 +75,7 @@ export default function App() {
   const [passwordPromptVisible, setPasswordPromptVisible] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const hasCheckedSync = useRef(false);
+  const pushInFlight = useRef(false); // Finding #3: push debounce lock
 
   useEffect(() => {
     // Only run this check once when app mounts and accessToken is available and auto-sync is enabled
@@ -82,6 +85,9 @@ export default function App() {
       const checkAndSync = async () => {
         try {
           setIsSyncing(true);
+          
+          // Finding #2: Replay any interrupted merge before syncing
+          await replayPendingMerge();
           
           // 1. If local state is dirty, attempt to push first before pulling/merging
           const isDirty = await AsyncStorage.getItem('nexus_sync_dirty');
@@ -165,10 +171,13 @@ export default function App() {
   };
 
   const handleCloudAutoPush = async () => {
+    // Finding #3: Skip if a push is already in flight to prevent race conditions
+    if (pushInFlight.current) return;
     if (accessToken && settings?.googleDriveAutoSyncEnabled !== false) {
       try {
         const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
         if (savedPassword) {
+          pushInFlight.current = true;
           setIsSyncing(true);
           console.log('Starting silent background cloud push...');
           await performDrivePush(accessToken, savedPassword);
@@ -177,6 +186,7 @@ export default function App() {
       } catch (err) {
         console.log('Silent background cloud push failed:', err);
       } finally {
+        pushInFlight.current = false;
         setIsSyncing(false);
       }
     }
@@ -467,6 +477,7 @@ export default function App() {
   // Handle deleting a logged drink
   const handleDeleteLog = async (id: string) => {
     // Instant deletion without alert confirmation prompts
+    await recordDeletion(id); // Finding #1: Track deletion for sync
     const updatedLogs = logs.filter((log) => log.id !== id);
     setLogs(updatedLogs);
     await saveLogs(updatedLogs);

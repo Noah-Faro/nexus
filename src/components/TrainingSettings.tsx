@@ -6,6 +6,7 @@ import { theme } from '../theme';
 import { Exercise } from '../trainingTypes';
 import { EXERCISE_LIBRARY } from '../exerciseLibrary';
 import { loadExerciseDefaults, saveExerciseDefaults, loadCustomExercises, saveCustomExercises } from '../trainingStorage';
+import { recordDeletion } from '../tombstones';
 import StepperInput from './StepperInput';
 import SheetHeader from './SheetHeader';
 import AppAlertModal, { AppAlertButton } from './AppAlertModal';
@@ -81,6 +82,7 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
       [
         { text: "Cancel", style: "cancel" },
         { text: "Delete", style: "destructive", onPress: async () => {
+            await recordDeletion(id); // Finding #1: Track deletion for sync
             const updated = customExercises.filter(e => e.id !== id);
             await saveCustomExercises(updated);
             onCustomExercisesChange(updated);

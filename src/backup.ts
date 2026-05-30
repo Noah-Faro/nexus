@@ -1,11 +1,71 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { encryptAESGCM, decryptAESGCM, deriveKeyFromPassword } from './security';
 import { loadSettings, loadLogs } from './storage';
 import { loadWorkoutSessions, loadTemplates, loadCustomExercises, loadExerciseDefaults } from './trainingStorage';
 import { saveSettings, saveLogs } from './storage';
 import { saveWorkoutSessions, saveTemplates, saveCustomExercises, saveExerciseDefaults } from './trainingStorage';
+import { Tombstone, loadTombstones, saveTombstones, pruneTombstones } from './tombstones';
+
+// ─── Finding #4: In-memory PBKDF2 key cache ───
+let cachedDerivedKey: { password: string; key: string; salt: string } | null = null;
+
+/**
+ * Clear the in-memory PBKDF2 key cache. Call on logout or password change.
+ */
+export function clearDerivedKeyCache(): void {
+  cachedDerivedKey = null;
+}
+
+function getCachedOrDeriveKey(password: string, existingSalt?: string): { key: string; salt: string } {
+  // If we have an existing salt (import/decrypt), always derive fresh with that salt
+  if (existingSalt) {
+    return deriveKeyFromPassword(password, existingSalt);
+  }
+  // For export: reuse cached key if password matches
+  if (cachedDerivedKey && cachedDerivedKey.password === password) {
+    return { key: cachedDerivedKey.key, salt: cachedDerivedKey.salt };
+  }
+  const derived = deriveKeyFromPassword(password);
+  cachedDerivedKey = { password, key: derived.key, salt: derived.salt };
+  return derived;
+}
+
+// ─── Finding #2: Atomic merge staging key ───
+const MERGE_STAGING_KEY = 'nexus_merge_staging';
+
+/**
+ * Replay a pending merge if the app was killed mid-save.
+ * Call this on app startup before any sync operations.
+ */
+export async function replayPendingMerge(): Promise<void> {
+  try {
+    const stagingData = await AsyncStorage.getItem(MERGE_STAGING_KEY);
+    if (!stagingData) return;
+
+    console.log('Replaying interrupted merge from staging key...');
+    const staged = JSON.parse(stagingData);
+
+    await saveSettings(staged.settings);
+    await saveLogs(staged.logs);
+    await saveWorkoutSessions(staged.sessions);
+    await saveTemplates(staged.templates);
+    await saveCustomExercises(staged.customExercises);
+    await saveExerciseDefaults(staged.defaults);
+    if (staged.tombstones) {
+      await saveTombstones(staged.tombstones);
+    }
+
+    await AsyncStorage.removeItem(MERGE_STAGING_KEY);
+    console.log('Interrupted merge replay completed successfully.');
+  } catch (e) {
+    console.error('Failed to replay pending merge:', e);
+    // Clear corrupted staging data so we don't loop on it
+    await AsyncStorage.removeItem(MERGE_STAGING_KEY).catch(() => {});
+  }
+}
 
 export async function exportVaultBackupToString(password: string): Promise<string> {
   // 1. Gather all state
@@ -18,18 +78,18 @@ export async function exportVaultBackupToString(password: string): Promise<strin
     workout_templates: await loadTemplates(),
     custom_exercises: await loadCustomExercises(),
     exercise_defaults: await loadExerciseDefaults(),
+    tombstones: await loadTombstones(), // Finding #1: Include tombstones in backup
   };
 
   const payloadJson = JSON.stringify(state);
 
-  // 2. Encrypt payload using user password
-  const { key, salt } = deriveKeyFromPassword(password);
+  // 2. Encrypt payload using user password (Finding #4: use cached key)
+  const { key, salt } = getCachedOrDeriveKey(password);
   const encryptedPayload = encryptAESGCM(payloadJson, key);
 
-  // 3. Construct .nexus file format
+  // 3. Construct .nexus file format (Finding #5: no exportedAt in outer wrapper)
   return JSON.stringify({
     version: '1.0',
-    exportedAt: state.exportedAt,
     encrypted: true,
     salt: salt,
     payload: encryptedPayload,
@@ -61,13 +121,21 @@ export async function exportVaultBackup(password: string): Promise<void> {
   }
 }
 
+// ─── Finding #1: Tombstone-aware merge ───
 function mergeById<T>(
   localItems: T[],
   remoteItems: T[],
   idKey: keyof T,
+  tombstones: Tombstone[],
   timestampKey?: keyof T
 ): T[] {
   const mergedMap = new Map<any, T>();
+  const tombstoneMap = new Map<string, number>();
+  
+  // Build a fast lookup for tombstones
+  for (const t of tombstones) {
+    tombstoneMap.set(t.id, t.deletedAt);
+  }
   
   const localList = Array.isArray(localItems) ? localItems : [];
   const remoteList = Array.isArray(remoteItems) ? remoteItems : [];
@@ -99,7 +167,35 @@ function mergeById<T>(
     }
   }
   
+  // Remove tombstoned entries: if an item was deleted more recently than it was last modified, exclude it
+  for (const [id, item] of mergedMap) {
+    const deletedAt = tombstoneMap.get(String(id));
+    if (deletedAt !== undefined) {
+      const itemTs = timestampKey ? ((item[timestampKey] as unknown as number) || 0) : 0;
+      if (deletedAt > itemTs) {
+        mergedMap.delete(id);
+      }
+    }
+  }
+  
   return Array.from(mergedMap.values());
+}
+
+/**
+ * Merge two tombstone arrays. For duplicate IDs, keep the more recent deletedAt.
+ */
+function mergeTombstones(local: Tombstone[], remote: Tombstone[]): Tombstone[] {
+  const map = new Map<string, number>();
+  for (const t of local) {
+    map.set(t.id, t.deletedAt);
+  }
+  for (const t of remote) {
+    const existing = map.get(t.id);
+    if (existing === undefined || t.deletedAt > existing) {
+      map.set(t.id, t.deletedAt);
+    }
+  }
+  return Array.from(map.entries()).map(([id, deletedAt]) => ({ id, deletedAt }));
 }
 
 export async function importVaultBackupFromString(fileStr: string, password: string): Promise<void> {
@@ -109,8 +205,8 @@ export async function importVaultBackupFromString(fileStr: string, password: str
     throw new Error('Invalid or corrupt backup file format.');
   }
 
-  // 2. Decrypt
-  const { key } = deriveKeyFromPassword(password, backupData.salt);
+  // 2. Decrypt (Finding #4: use cached key for matching salt)
+  const { key } = getCachedOrDeriveKey(password, backupData.salt);
   let decryptedStr = '';
   try {
     decryptedStr = decryptAESGCM(backupData.payload, key);
@@ -133,11 +229,16 @@ export async function importVaultBackupFromString(fileStr: string, password: str
   const localCustomExercises = await loadCustomExercises();
   const localDefaults = await loadExerciseDefaults();
 
-  // 4. Merge hydration logs and workouts
-  const mergedLogs = mergeById(localLogs, state.hydration_history, 'id', 'timestamp');
-  const mergedSessions = mergeById(localSessions, state.workout_sessions || [], 'id', 'startTime');
-  const mergedTemplates = mergeById(localTemplates, state.workout_templates || [], 'id');
-  const mergedCustomExercises = mergeById(localCustomExercises, state.custom_exercises || [], 'id');
+  // Finding #1: Load and merge tombstones
+  const localTombstones = await loadTombstones();
+  const remoteTombstones: Tombstone[] = state.tombstones || [];
+  const mergedTombstones = mergeTombstones(localTombstones, remoteTombstones);
+
+  // 4. Merge hydration logs and workouts (Finding #1: tombstone-aware)
+  const mergedLogs = mergeById(localLogs, state.hydration_history, 'id', mergedTombstones, 'timestamp');
+  const mergedSessions = mergeById(localSessions, state.workout_sessions || [], 'id', mergedTombstones, 'startTime');
+  const mergedTemplates = mergeById(localTemplates, state.workout_templates || [], 'id', mergedTombstones);
+  const mergedCustomExercises = mergeById(localCustomExercises, state.custom_exercises || [], 'id', mergedTombstones);
 
   // 5. Merge settings (prefer remote if remote is newer, but preserve customLiquids and decafPrefs)
   const remoteSettings = state.settings || {};
@@ -165,6 +266,19 @@ export async function importVaultBackupFromString(fileStr: string, password: str
     ...(state.exercise_defaults || {})
   };
 
+  // Finding #2: Atomic save via staging key
+  // Write all merged data to a staging key first, then save individually, then clear staging
+  const stagingPayload = JSON.stringify({
+    settings: finalSettings,
+    logs: mergedLogs,
+    sessions: mergedSessions,
+    templates: mergedTemplates,
+    customExercises: mergedCustomExercises,
+    defaults: mergedDefaults,
+    tombstones: mergedTombstones,
+  });
+  await AsyncStorage.setItem(MERGE_STAGING_KEY, stagingPayload);
+
   // 7. Save merged state
   await saveSettings(finalSettings);
   await saveLogs(mergedLogs);
@@ -172,6 +286,13 @@ export async function importVaultBackupFromString(fileStr: string, password: str
   await saveTemplates(mergedTemplates);
   await saveCustomExercises(mergedCustomExercises);
   await saveExerciseDefaults(mergedDefaults);
+  await saveTombstones(mergedTombstones);
+
+  // Clear staging key — save completed successfully
+  await AsyncStorage.removeItem(MERGE_STAGING_KEY);
+
+  // Prune old tombstones (90 days)
+  await pruneTombstones(90);
 }
 
 export async function importVaultBackup(fileUri: string, password: string): Promise<void> {
