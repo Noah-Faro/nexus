@@ -64,6 +64,7 @@ export default function App() {
   const [goalModalVisible, setGoalModalVisible] = useState(false); // Custom celebration modal
   const [helpModalVisible, setHelpModalVisible] = useState(false); // Custom console help modal
   const [brewLabVisible, setBrewLabVisible] = useState(false); // Custom liquid synthesis bottom sheet
+  const [isWaitingForUnlock, setIsWaitingForUnlock] = useState(false); // Loading screen status
 
   const [decafPrefs, setDecafPrefs] = useState<Record<string, boolean>>({
     'tea': true,      // Tea defaults to decaf ON
@@ -138,6 +139,10 @@ export default function App() {
           }
         } catch (err: any) {
           console.log('Error doing silent sync:', err);
+          if (err.message === 'SECURE_STORE_LOCKED') {
+            console.log('SecureStore locked during background sync, aborting cleanly.');
+            return;
+          }
           // If it failed because of wrong password, clear it so the user can re-enter
           const errMsg = err?.message || '';
           if (errMsg.includes('Wrong password') || errMsg.includes('password') || errMsg.includes('payload')) {
@@ -195,8 +200,12 @@ export default function App() {
           await performDrivePush(accessToken, savedPassword);
           console.log('Silent background cloud push completed.');
         }
-      } catch (err) {
-        console.log('Silent background cloud push failed:', err);
+      } catch (err: any) {
+        if (err.message === 'SECURE_STORE_LOCKED') {
+          console.log('SecureStore locked during background push, aborting cleanly.');
+        } else {
+          console.log('Silent background cloud push failed:', err);
+        }
       } finally {
         pushInFlight.current = false;
         setIsSyncing(false);
@@ -344,14 +353,29 @@ export default function App() {
   // Load configuration and data from local storage on launch
   useEffect(() => {
     async function initApp() {
-      const storedSettings = await loadSettings();
-      const storedLogs = await loadLogs();
-      
-      // Artificially hold the launch screen for 500ms to appreciate the NEXUS logo
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setSettings(storedSettings);
-      setLogs(storedLogs);
+      while (true) {
+        try {
+          const storedSettings = await loadSettings();
+          const storedLogs = await loadLogs();
+          
+          // Artificially hold the launch screen for 500ms to appreciate the NEXUS logo
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          setSettings(storedSettings);
+          setLogs(storedLogs);
+          setIsWaitingForUnlock(false);
+          break; // Initialization successful
+        } catch (err: any) {
+          if (err.message === 'SECURE_STORE_LOCKED') {
+            console.log('SecureStore is locked. Waiting 1 second to retry loading data...');
+            setIsWaitingForUnlock(true);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } else {
+            console.error('Failed to initialize app data:', err);
+            break; // Stop loop on unknown error
+          }
+        }
+      }
     }
     initApp();
   }, []);
@@ -485,6 +509,9 @@ export default function App() {
           style={styles.loadingLogo}
           resizeMode="contain"
         />
+        {isWaitingForUnlock && (
+          <Text style={styles.unlockWaitingText}>Waiting for Device Unlock...</Text>
+        )}
       </View>
     );
   }
@@ -865,8 +892,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingLogo: {
-    width: 140,
-    height: 140,
+    width: 200,
+    height: 200,
+    marginBottom: 20,
+  },
+  unlockWaitingText: {
+    fontFamily: theme.typography.semibold,
+    fontSize: 16,
+    color: theme.colors.textMuted,
+    marginTop: 20,
   },
   viewContainer: {
     flex: 1,

@@ -25,11 +25,8 @@ export async function getOrGenerateMasterKey(): Promise<string> {
     return keyHex;
   } catch (e) {
     console.error('Failed to get/set master key:', e);
-    // Secure fallback: generate a random key in memory if SecureStore fails
-    const fallbackBytes = Crypto.getRandomValues(new Uint8Array(32));
-    return Array.from(fallbackBytes)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    // Remove insecure fallback to prevent data wiping when SecureStore is locked.
+    throw new Error('SECURE_STORE_LOCKED');
   }
 }
 

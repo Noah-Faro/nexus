@@ -37,6 +37,9 @@ export async function loadFromStorage<T>(key: string, fallback: T): Promise<T> {
     }
   } catch (e) {
     console.error(`Error loading key "${key}" from storage`, e);
+    if (e instanceof Error && e.message === 'SECURE_STORE_LOCKED') {
+      throw e;
+    }
   }
   return fallback;
 }
@@ -49,5 +52,8 @@ export async function saveToStorage<T>(key: string, data: T): Promise<void> {
     await AsyncStorage.setItem(key, encryptedStr);
   } catch (e) {
     console.error(`Error saving key "${key}" to storage`, e);
+    if (e instanceof Error && e.message === 'SECURE_STORE_LOCKED') {
+      throw e;
+    }
   }
 }

@@ -93,56 +93,9 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
     return () => clearTimeout(timer);
   }, [isProcessingBackup]);
 
-  // Fix B: Track previous accessToken to detect connect/disconnect transitions.
-  // When the user connects Google Drive (null → token), auto-enable auto-sync and save immediately.
-  // When the user disconnects (token → null), auto-disable auto-sync and save immediately.
-  const prevAccessTokenRef = React.useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    const prev = prevAccessTokenRef.current;
-    // Skip the very first render (undefined means not yet initialized)
-    if (prev === undefined) {
-      prevAccessTokenRef.current = accessToken;
-      return;
-    }
-    if (!prev && accessToken) {
-      // Just connected to Google Drive — auto-enable auto-sync and save
-      setGoogleDriveAutoSyncEnabled(true);
-      const updated: UserSettings = {
-        ...settings,
-        userName: userName.trim(),
-        weight: parseFloat(weight) || 70,
-        weightUnit,
-        activityLevel,
-        useAutoGoal,
-        customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
-        wakeTime: wakeTime.trim() || '07:00',
-        sleepTime: sleepTime.trim() || '22:00',
-        lagNotificationsEnabled,
-        googleDriveAutoSyncEnabled: true,
-      };
-      onSave(updated);
-      // Immediate sync fires via handleAutoSyncEnabled in App.tsx
-      onAutoSyncEnabled?.();
-    } else if (prev && !accessToken) {
-      // Just disconnected from Google Drive — auto-disable auto-sync and save
-      setGoogleDriveAutoSyncEnabled(false);
-      const updated: UserSettings = {
-        ...settings,
-        userName: userName.trim(),
-        weight: parseFloat(weight) || 70,
-        weightUnit,
-        activityLevel,
-        useAutoGoal,
-        customGoal: useAutoGoal ? null : (parseInt(customGoal, 10) || 2500),
-        wakeTime: wakeTime.trim() || '07:00',
-        sleepTime: sleepTime.trim() || '22:00',
-        lagNotificationsEnabled,
-        googleDriveAutoSyncEnabled: false,
-      };
-      onSave(updated);
-    }
-    prevAccessTokenRef.current = accessToken;
-  }, [accessToken]);
+  // Fix B has been removed: we no longer aggressively track accessToken transitions to
+  // automatically enable auto-sync, because it incorrectly overwrote user preferences
+  // during silent background token refreshes on app bootup.
 
   const handleSave = () => {
     const timeRegex = /^(0[0-9]|1[0-9]|2[0-3]|[0-9]):[0-5][0-9]$/;
@@ -576,8 +529,8 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
                         <TouchableOpacity 
                           style={[styles.backupBtn, styles.backupBtnSecondary, { flex: 0.5 }]} 
                           onPress={async () => {
-                            // Fix B: After logout, the accessToken transition useEffect will
-                            // automatically set googleDriveAutoSyncEnabled = false and save.
+                            // Call logout to clear the token.
+                            // The disabled toggle prevents syncs while disconnected.
                             await logout();
                           }}
                           disabled={isProcessingBackup}
