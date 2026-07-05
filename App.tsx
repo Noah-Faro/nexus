@@ -35,6 +35,7 @@ import NexusVault from './src/components/NexusVault';
 import BrewLabSheet from './src/components/BrewLabSheet';
 import TrainingApp from './src/components/TrainingApp';
 import SyncIndicator from './src/components/SyncIndicator';
+import { SyncPreviewModal } from './src/components/SyncPreviewModal';
 import { useGoogleDriveAuth } from './src/googleAuth';
 import { performDriveSync, performDrivePush } from './src/sync';
 import { findStateFileId } from './src/googleDrive';
@@ -48,6 +49,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -76,11 +79,12 @@ export default function App() {
   const hasCheckedSync = useRef(false);
   const pushInFlight = useRef(false); // Finding #3: push debounce lock
 
+  // Task 5c: Merge Preview Modal State
+  const [syncDiffData, setSyncDiffData] = useState<any>(null);
+  const [syncDiffModalVisible, setSyncDiffModalVisible] = useState(false);
+
   useEffect(() => {
-    // Only run this check once when app mounts, accessToken is available, settings are loaded,
-    // and auto-sync is explicitly enabled. Guard against null settings (Fix A: settings starts
-    // as null on mount; null?.googleDriveAutoSyncEnabled !== false evaluates to true, causing
-    // the sync to fire before settings have loaded from AsyncStorage).
+    // Only run this check once when app mounts
     if (accessToken && !hasCheckedSync.current && settings && settings.googleDriveAutoSyncEnabled !== false) {
       hasCheckedSync.current = true;
       
@@ -93,9 +97,7 @@ export default function App() {
           
           const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
           
-          // Fix E: Check dirty flag — if offline edits exist, do a full pull-merge-push instead
-          // of push-only. This prevents Device A's pushed changes from being overwritten by
-          // Device B blindly pushing its own stale state on reconnect.
+          // Fix E: Check dirty flag
           const isDirty = await AsyncStorage.getItem('nexus_sync_dirty');
           if (isDirty === 'true' && savedPassword) {
             console.log('Detected unsynced offline changes (dirty flag). Running full sync to merge...');
@@ -106,6 +108,7 @@ export default function App() {
                 const storedLogs = await loadLogs();
                 setSettings(storedSettings);
                 setLogs(storedLogs);
+                await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
                 console.log('Dirty-flag full sync completed successfully.');
                 return;
               }
@@ -114,25 +117,38 @@ export default function App() {
             }
           }
           
-          // 2. Check if a remote backup exists
+          // 2. Check if a remote backup exists and compute diff silently
           const remoteFile = await findStateFileId(accessToken);
           if (remoteFile) {
             if (savedPassword) {
-              const success = await performDriveSync(accessToken, savedPassword, (msg) => {
-                console.log('Silent sync:', msg);
-              });
-              if (success) {
-                // Reload data into state
-                const storedSettings = await loadSettings();
-                const storedLogs = await loadLogs();
-                setSettings(storedSettings);
-                setLogs(storedLogs);
-                console.log('Silent auto-sync completed successfully');
-                return;
+              try {
+                // Task 5e: computeSyncDiff instead of blind sync
+                const { computeSyncDiff } = require('./src/sync');
+                const diff = await computeSyncDiff(accessToken);
+                
+                if (diff && (diff.newSessionsCount > 0 || diff.newLogsCount > 0 || diff.settingsChanged || diff.tombstonesApplied > 0)) {
+                   setSyncDiffData(diff);
+                   setSyncDiffModalVisible(true);
+                } else if (diff) {
+                   // Diff is exactly 0, meaning we are perfectly in sync. Just update timestamp.
+                   await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
+                }
+              } catch (diffErr: any) {
+                console.log('Diff computation failed. Proceeding with standard silent sync if password is ok.', diffErr);
+                // Fallback to normal if password wasn't cached or something else failed
+                const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Fallback sync:', msg));
+                if (success) {
+                  const storedSettings = await loadSettings();
+                  const storedLogs = await loadLogs();
+                  setSettings(storedSettings);
+                  setLogs(storedLogs);
+                  await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
+                }
               }
+              return;
             }
             
-            // Found a remote file on startup, but no saved password or silent sync failed, prompt for password
+            // Found a remote file on startup, but no saved password, prompt for password
             setPasswordPromptVisible(true);
           }
         } catch (err: any) {
@@ -154,6 +170,30 @@ export default function App() {
       checkAndSync();
     }
   }, [accessToken, settings]);
+
+  const handleMergeConfirm = async () => {
+    if (!accessToken) return;
+    setSyncDiffModalVisible(false);
+    setIsSyncing(true);
+    try {
+      const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
+      if (savedPassword) {
+        const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Merge preview sync:', msg));
+        if (success) {
+          const storedSettings = await loadSettings();
+          const storedLogs = await loadLogs();
+          setSettings(storedSettings);
+          setLogs(storedLogs);
+          await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
+          triggerAlert('Merge Complete', 'Successfully merged cloud changes.');
+        }
+      }
+    } catch (err: any) {
+      triggerAlert('Sync Failed', err.message || 'An error occurred during sync.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleExecuteStartupSync = async (password: string) => {
     if (!accessToken) return;
@@ -748,6 +788,14 @@ export default function App() {
           message="A backup was found in Google Drive. Enter your vault password to decrypt and merge it."
           onSubmit={handleExecuteStartupSync}
           onCancel={() => setPasswordPromptVisible(false)}
+        />
+
+        <SyncPreviewModal
+          visible={syncDiffModalVisible}
+          diff={syncDiffData}
+          onConfirm={handleMergeConfirm}
+          onCancel={() => setSyncDiffModalVisible(false)}
+          isMerging={isSyncing}
         />
       </View>
     </SafeAreaView>

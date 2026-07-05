@@ -7,10 +7,13 @@ import { UserSettings } from '../types';
 import SegmentedControl from './SegmentedControl';
 import { calculateGoal } from '../storage';
 import { exportVaultBackup, pickAndImportBackup } from '../backup';
-import { Lock, Download, UploadCloud, Cloud, RefreshCw } from 'lucide-react-native';
+import { Lock, Download, UploadCloud, Cloud, RefreshCw, RotateCcw } from 'lucide-react-native';
 import { useGoogleDriveAuth } from '../googleAuth';
 import { performDriveSync } from '../sync';
 import * as SecureStore from 'expo-secure-store';
+import { restoreFromSnapshot, hasPreMergeSnapshot, clearPreMergeSnapshot } from '../syncSnapshot';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -46,6 +49,29 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
   // Google Drive Auth
   const { accessToken, request, promptAsync, logout } = useGoogleDriveAuth();
   const [syncStatus, setSyncStatus] = useState('');
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [canUndoSync, setCanUndoSync] = useState(false);
+
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: AppAlertButton[];
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: []
+  });
+
+  const triggerAlert = (title: string, message: string, buttons?: AppAlertButton[]) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }]
+    });
+  };
 
   // Track previous visibility to detect open transition
   const prevVisibleRef = React.useRef(false);
@@ -79,6 +105,16 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
           if (pwd) setBackupPassword(pwd);
         })
         .catch(console.error);
+
+      AsyncStorage.getItem('nexus_last_sync')
+        .then(val => {
+          if (val) setLastSync(val);
+        })
+        .catch(console.error);
+        
+      hasPreMergeSnapshot()
+        .then(setCanUndoSync)
+        .catch(console.error);
     }
     prevVisibleRef.current = visible;
   }, [visible, settings]);
@@ -92,10 +128,6 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
     }, 30000);
     return () => clearTimeout(timer);
   }, [isProcessingBackup]);
-
-  // Fix B has been removed: we no longer aggressively track accessToken transitions to
-  // automatically enable auto-sync, because it incorrectly overwrote user preferences
-  // during silent background token refreshes on app bootup.
 
   const handleSave = () => {
     const timeRegex = /^(0[0-9]|1[0-9]|2[0-3]|[0-9]):[0-5][0-9]$/;
@@ -206,6 +238,12 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
       
       // Save password securely in device keychain for seamless startup auto-syncs
       await SecureStore.setItemAsync('nexus_vault_password', backupPassword).catch(console.error);
+      setLastSync(Date.now().toString());
+      
+      // We just synced, so there might be a snapshot if there was a pull merge
+      const hasSnapshot = await hasPreMergeSnapshot();
+      setCanUndoSync(hasSnapshot);
+      
       setBackupSuccess('Cloud sync completed successfully!');
       setSyncStatus('');
     } catch (err: any) {
@@ -214,6 +252,36 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
     } finally {
       setIsProcessingBackup(false);
     }
+  };
+
+  const handleUndoSync = () => {
+    if (!backupPassword || backupPassword.length < 4) {
+      setBackupError('Password required to undo sync');
+      return;
+    }
+    triggerAlert('Undo Last Sync', 'Are you sure you want to revert to the state before your last merge? This will overwrite your current data.', [
+      { text: 'Cancel', style: 'cancel' },
+      { 
+        text: 'Undo Sync', 
+        style: 'destructive',
+        onPress: async () => {
+          setIsProcessingBackup(true);
+          setBackupError('');
+          setBackupSuccess('');
+          try {
+            await restoreFromSnapshot(backupPassword);
+            await clearPreMergeSnapshot();
+            setCanUndoSync(false);
+            setBackupSuccess('Undid last sync successfully.');
+            onImportComplete?.(); // Reload state
+          } catch (err: any) {
+            setBackupError(err.message || 'Undo sync failed');
+          } finally {
+            setIsProcessingBackup(false);
+          }
+        }
+      }
+    ]);
   };
 
   return (
@@ -515,32 +583,49 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
                       <Text style={styles.backupBtnText}>Connect Google Drive</Text>
                     </TouchableOpacity>
                   ) : (
-                    <View style={{ marginTop: 12, gap: 8 }}>
-                      <View style={{ flexDirection: 'row', gap: 12 }}>
-                        <TouchableOpacity 
-                          style={[styles.backupBtn, isProcessingBackup && { opacity: 0.5 }]} 
-                          onPress={handleDriveSync}
-                          disabled={isProcessingBackup}
-                        >
-                          <RefreshCw size={18} color={theme.colors.background} />
-                          <Text style={styles.backupBtnText}>Sync Now</Text>
-                        </TouchableOpacity>
+                      <View style={{ marginTop: 12, gap: 8 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 }}>
+                          <Text style={[styles.subtext, { marginTop: 0 }]}>
+                            {lastSync ? `Last synced: ${Math.round((Date.now() - parseInt(lastSync, 10)) / 60000)} min ago` : 'Last synced: Never'}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                          <TouchableOpacity 
+                            style={[styles.backupBtn, isProcessingBackup && { opacity: 0.5 }]} 
+                            onPress={handleDriveSync}
+                            disabled={isProcessingBackup}
+                          >
+                            <RefreshCw size={18} color={theme.colors.background} />
+                            <Text style={styles.backupBtnText}>Sync Now</Text>
+                          </TouchableOpacity>
 
-                        <TouchableOpacity 
-                          style={[styles.backupBtn, styles.backupBtnSecondary, { flex: 0.5 }]} 
-                          onPress={async () => {
-                            // Call logout to clear the token.
-                            // The disabled toggle prevents syncs while disconnected.
-                            await logout();
-                          }}
-                          disabled={isProcessingBackup}
-                        >
-                          <Text style={[styles.backupBtnText, { color: theme.colors.text }]}>Disconnect</Text>
-                        </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[styles.backupBtn, styles.backupBtnSecondary, { flex: 0.5 }]} 
+                            onPress={async () => {
+                              // Call logout to clear the token.
+                              // The disabled toggle prevents syncs while disconnected.
+                              await logout();
+                            }}
+                            disabled={isProcessingBackup}
+                          >
+                            <Text style={[styles.backupBtnText, { color: theme.colors.text }]}>Disconnect</Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {canUndoSync && (
+                          <TouchableOpacity 
+                            style={[styles.backupBtn, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]} 
+                            onPress={handleUndoSync}
+                            disabled={isProcessingBackup}
+                          >
+                            <RotateCcw size={18} color={theme.colors.text} />
+                            <Text style={[styles.backupBtnText, { color: theme.colors.text }]}>Undo Last Sync</Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {!!syncStatus && <Text style={[styles.subtext, { textAlign: 'center', marginTop: 4 }]}>{syncStatus}</Text>}
                       </View>
-                      {!!syncStatus && <Text style={[styles.subtext, { textAlign: 'center', marginTop: 4 }]}>{syncStatus}</Text>}
-                    </View>
-                  )}
+                    )}
                 </View>
               </View>
             </View>
@@ -553,6 +638,14 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <AppAlertModal 
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </Modal>
   );
 }

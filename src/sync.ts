@@ -1,6 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { findStateFileId, uploadStateToDrive, downloadStateFromDrive } from './googleDrive';
-import { exportVaultBackupToString, importVaultBackupFromString } from './backup';
+import { exportVaultBackupToString, importVaultBackupFromString, SyncDiff, computeSyncDiffLocal } from './backup';
+
+import { savePreMergeSnapshot } from './syncSnapshot';
+
+export async function computeSyncDiff(token: string): Promise<SyncDiff | null> {
+  const remoteFile = await findStateFileId(token);
+  if (!remoteFile) return null; // No cloud data to merge
+
+  const remoteData = await downloadStateFromDrive(token, remoteFile.id);
+  
+  return await computeSyncDiffLocal(remoteData);
+}
 
 function mapSyncError(error: any): string {
   const msg = error?.message || '';
@@ -46,6 +57,10 @@ export async function performDriveSync(
     const pwd = typeof passwordOrPrompt === 'function' ? await passwordOrPrompt() : passwordOrPrompt;
     if (!pwd) throw new Error('Password required to import sync');
     
+    // Save snapshot before mutating local state
+    if (onProgress) onProgress('Saving pre-merge snapshot...');
+    await savePreMergeSnapshot(pwd);
+
     // Perform merge-import
     await importVaultBackupFromString(remoteData, pwd);
     

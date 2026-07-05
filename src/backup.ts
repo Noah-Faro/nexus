@@ -12,11 +12,12 @@ import { Tombstone, loadTombstones, saveTombstones, pruneTombstones } from './to
 // ─── Finding #4: In-memory PBKDF2 key cache ───
 let cachedDerivedKey: { password: string; key: string; salt: string } | null = null;
 
-/**
- * Clear the in-memory PBKDF2 key cache. Call on logout or password change.
- */
 export function clearDerivedKeyCache(): void {
   cachedDerivedKey = null;
+}
+
+export function getCachedPassword(): string | null {
+  return cachedDerivedKey ? cachedDerivedKey.password : null;
 }
 
 function getCachedOrDeriveKey(password: string, existingSalt?: string): { key: string; salt: string } {
@@ -356,4 +357,68 @@ export async function pickAndImportBackup(password: string): Promise<boolean> {
   const fileUri = result.assets[0].uri;
   await importVaultBackup(fileUri, password);
   return true;
+}
+
+export interface SyncDiff {
+  newSessionsCount: number;
+  newLogsCount: number;
+  settingsChanged: boolean;
+  tombstonesApplied: number;
+  remoteDate: string;
+}
+
+export async function computeSyncDiffLocal(fileStr: string): Promise<SyncDiff> {
+  const pwd = getCachedPassword();
+  if (!pwd) throw new Error('Password not cached. Cannot compute diff in background.');
+
+  const backupData = JSON.parse(fileStr);
+  if (!backupData.encrypted || !backupData.salt || !backupData.payload) {
+    throw new Error('Invalid or corrupt backup file format.');
+  }
+
+  const { key } = deriveKeyFromPassword(pwd, backupData.salt);
+  let decryptedStr = '';
+  try {
+    decryptedStr = decryptAESGCM(backupData.payload, key);
+  } catch (e) {
+    throw new Error('Incorrect password or corrupt payload.');
+  }
+
+  const state = JSON.parse(decryptedStr);
+  if (!state.version || !state.hydration_history || !state.workout_templates) {
+    throw new Error('Backup payload is missing critical top-level tracking keys.');
+  }
+
+  const localSettings = await loadSettings();
+  const localLogs = await loadLogs();
+  const localSessions = await loadWorkoutSessions();
+  const localTombstones = await loadTombstones();
+
+  const remoteTombstones: Tombstone[] = state.tombstones || [];
+  const mergedTombstones = mergeTombstones(localTombstones, remoteTombstones);
+
+  const importedItemIds = new Set<string>();
+  for (const item of (state.hydration_history || [])) { if (item?.id) importedItemIds.add(String(item.id)); }
+  for (const item of (state.workout_sessions || [])) { if (item?.id) importedItemIds.add(String(item.id)); }
+
+  const importFileTombstoneIds = new Set<string>(remoteTombstones.map(t => String(t.id)));
+  const importAwareTombstones = mergedTombstones.filter(t => {
+    if (importedItemIds.has(String(t.id)) && !importFileTombstoneIds.has(String(t.id))) return false;
+    return true;
+  });
+
+  const mergedLogs = mergeById(localLogs, state.hydration_history, 'id', importAwareTombstones, 'timestamp');
+  const mergedSessions = mergeById(localSessions, state.workout_sessions || [], 'id', importAwareTombstones, 'startTime');
+
+  const remoteSettings = state.settings || {};
+  const remoteTimestamp = remoteSettings.updatedAt || state.exportedAt || '';
+  const localTimestamp = localSettings.updatedAt || '';
+
+  return {
+    newSessionsCount: mergedSessions.length - localSessions.length,
+    newLogsCount: mergedLogs.length - localLogs.length,
+    settingsChanged: remoteTimestamp > localTimestamp,
+    tombstonesApplied: mergedTombstones.length - localTombstones.length,
+    remoteDate: state.exportedAt || new Date().toISOString(),
+  };
 }
