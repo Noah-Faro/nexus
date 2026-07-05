@@ -37,6 +37,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
   const [sleepTime, setSleepTime] = useState(settings.sleepTime || '22:00');
   const [lagNotificationsEnabled, setLagNotificationsEnabled] = useState(settings.lagNotificationsEnabled !== false);
   const [googleDriveAutoSyncEnabled, setGoogleDriveAutoSyncEnabled] = useState(settings.googleDriveAutoSyncEnabled !== false);
+  const [primaryGoal, setPrimaryGoal] = useState<'hypertrophy' | 'strength'>(settings.primaryGoal || 'hypertrophy');
   const [wakeError, setWakeError] = useState(false);
   const [sleepError, setSleepError] = useState(false);
 
@@ -88,6 +89,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
       setSleepTime(settings.sleepTime || '22:00');
       setLagNotificationsEnabled(settings.lagNotificationsEnabled !== false);
       setGoogleDriveAutoSyncEnabled(settings.googleDriveAutoSyncEnabled !== false);
+      setPrimaryGoal(settings.primaryGoal || 'hypertrophy');
       setWakeError(false);
       setSleepError(false);
       
@@ -154,6 +156,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
       sleepTime: sleepTime.trim(),
       lagNotificationsEnabled,
       googleDriveAutoSyncEnabled,
+      primaryGoal,
     };
     onSave(updatedSettings);
     onClose();
@@ -170,6 +173,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
     wakeTime: wakeTime.trim() || '07:00',
     sleepTime: sleepTime.trim() || '22:00',
     lagNotificationsEnabled,
+    primaryGoal,
   };
   const computedGoal = calculateGoal(tempSettings);
 
@@ -350,6 +354,18 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
                   selectedValue={activityLevel}
                   onChange={setActivityLevel}
                   labels={['Sedentary', 'Moderate', 'Active']}
+                />
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.rowVertical}>
+                <Text style={styles.label}>Training Goal</Text>
+                <SegmentedControl
+                  values={['hypertrophy', 'strength'] as const}
+                  selectedValue={primaryGoal}
+                  onChange={setPrimaryGoal}
+                  labels={['Hypertrophy', 'Strength']}
                 />
               </View>
             </View>
@@ -553,6 +569,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
                           sleepTime: sleepTime.trim() || '22:00',
                           lagNotificationsEnabled,
                           googleDriveAutoSyncEnabled: val,
+                          primaryGoal,
                         };
                         onSave(updated);
                         // If enabling, trigger an immediate full sync

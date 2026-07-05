@@ -25,6 +25,8 @@ export interface UserSettings {
   lagNotificationsEnabled?: boolean; // toggle smart push notifications
   decafPrefs?: Record<string, boolean>; // decaf preferences dictionary
   googleDriveAutoSyncEnabled?: boolean; // toggle auto-sync on startup
+  primaryGoal?: 'hypertrophy' | 'strength'; // training goal
+  trainingAge?: 'novice' | 'intermediate' | 'advanced'; // user's training experience
   updatedAt?: string;                 // ISO timestamp of when settings were last saved
 }
 

@@ -1,56 +1,59 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
-import Svg, { Line, Circle, Path, Text as SvgText, G } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../theme';
-import { WorkoutSession, LoggedSet } from '../trainingTypes';
+import { WorkoutSession, VolumeStateSnapshot } from '../trainingTypes';
 
 interface TrainingDashboardProps {
   sessions: WorkoutSession[];
 }
 
 export default function TrainingDashboard({ sessions }: TrainingDashboardProps) {
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  const [volumeSnapshots, setVolumeSnapshots] = useState<VolumeStateSnapshot[]>([]);
+  const [selectedMuscleGroup, setSelectedMuscleGroup] = useState<string | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('nexus_volume_snapshots').then(data => {
+      if (data) {
+        setVolumeSnapshots(JSON.parse(data));
+      }
+    });
+  }, []);
 
   const totalVolume = sessions.reduce((sum, s) => sum + s.totalVolume, 0);
 
-  // Group volume by exercise
-  const volumeByExercise = useMemo(() => {
-    const map: Record<string, { name: string, volume: number }> = {};
-    sessions.forEach(s => {
-      s.sets.forEach(set => {
-        if (!map[set.exerciseId]) {
-          map[set.exerciseId] = { name: set.exerciseName, volume: 0 };
-        }
-        map[set.exerciseId].volume += (set.weight * set.reps);
-      });
-    });
-    return Object.entries(map)
-      .map(([id, data]) => ({ id, ...data }))
-      .sort((a, b) => b.volume - a.volume);
-  }, [sessions]);
+  // Derive muscle groups from snapshots
+  const muscleGroups = useMemo(() => {
+    const groups = new Set<string>();
+    volumeSnapshots.forEach(s => groups.add(s.muscleGroup));
+    return Array.from(groups).sort();
+  }, [volumeSnapshots]);
 
-  // Set default selected exercise to the one with most volume
-  if (!selectedExerciseId && volumeByExercise.length > 0) {
-    setSelectedExerciseId(volumeByExercise[0].id);
+  // Set default selected muscle group
+  if (!selectedMuscleGroup && muscleGroups.length > 0) {
+    setSelectedMuscleGroup(muscleGroups[0]);
   }
 
-  // Calculate e1RM trend for selected exercise
+  // Calculate best1RMAnchor trend for selected muscle group
   const e1RMTrend = useMemo(() => {
-    if (!selectedExerciseId) return [];
-    
-    // Group sets by session/day to find max e1RM per session
-    const dataPoints: { date: number, e1RM: number }[] = [];
-    
-    const sortedSessions = [...sessions].sort((a, b) => a.startTime - b.startTime);
-    sortedSessions.forEach(s => {
-      const exSets = s.sets.filter(set => set.exerciseId === selectedExerciseId);
-      if (exSets.length > 0) {
-        const max1RM = Math.max(...exSets.map(set => set.estimated1RM));
-        dataPoints.push({ date: s.startTime, e1RM: max1RM });
-      }
-    });
-    return dataPoints;
-  }, [sessions, selectedExerciseId]);
+    if (!selectedMuscleGroup) return [];
+    return volumeSnapshots
+      .filter(s => s.muscleGroup === selectedMuscleGroup && s.best1RMAnchor !== null)
+      .sort((a, b) => a.weekId.localeCompare(b.weekId))
+      .map((s, index) => ({ date: index, e1RM: s.best1RMAnchor as number, week: s.weekId }));
+  }, [volumeSnapshots, selectedMuscleGroup]);
+
+  // Volume Breakdown data (latest week)
+  const latestWeek = useMemo(() => {
+    if (volumeSnapshots.length === 0) return null;
+    return volumeSnapshots.map(s => s.weekId).sort().pop();
+  }, [volumeSnapshots]);
+
+  const currentWeekVolumes = useMemo(() => {
+    if (!latestWeek) return [];
+    return volumeSnapshots.filter(s => s.weekId === latestWeek);
+  }, [volumeSnapshots, latestWeek]);
 
   const { width } = Dimensions.get('window');
   const graphW = width - 64;
@@ -61,14 +64,16 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
     
     const min1RM = Math.min(...e1RMTrend.map(d => d.e1RM)) * 0.9;
     const max1RM = Math.max(...e1RMTrend.map(d => d.e1RM)) * 1.1;
-    const timeRange = e1RMTrend[e1RMTrend.length - 1].date - e1RMTrend[0].date || 1;
+    const timeRange = e1RMTrend.length - 1;
     
     return e1RMTrend.map((d, i) => {
-      const x = ((d.date - e1RMTrend[0].date) / timeRange) * graphW;
+      const x = (i / timeRange) * graphW;
       const y = graphH - ((d.e1RM - min1RM) / (max1RM - min1RM)) * graphH;
       return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
     }).join(' ');
   }, [e1RMTrend, graphW, graphH]);
+
+  const MEV_BASELINE = 10;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -85,19 +90,19 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>e1RM TREND</Text>
-      <View style={styles.chartContainer}>
-        {volumeByExercise.length > 0 ? (
-          <>
+      {e1RMTrend.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>e1RM TREND</Text>
+          <View style={styles.chartContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillsScroll} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
-              {volumeByExercise.slice(0, 10).map(ex => (
+              {muscleGroups.map(group => (
                 <TouchableOpacity 
-                  key={ex.id} 
-                  style={[styles.pill, selectedExerciseId === ex.id && styles.pillActive]}
-                  onPress={() => setSelectedExerciseId(ex.id)}
+                  key={group} 
+                  style={[styles.pill, selectedMuscleGroup === group && styles.pillActive]}
+                  onPress={() => setSelectedMuscleGroup(group)}
                 >
-                  <Text style={[styles.pillText, selectedExerciseId === ex.id && styles.pillTextActive]}>
-                    {ex.name}
+                  <Text style={[styles.pillText, selectedMuscleGroup === group && styles.pillTextActive]}>
+                    {group.toUpperCase()}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -110,8 +115,8 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
                   {e1RMTrend.map((d, i) => {
                     const min1RM = Math.min(...e1RMTrend.map(x => x.e1RM)) * 0.9;
                     const max1RM = Math.max(...e1RMTrend.map(x => x.e1RM)) * 1.1;
-                    const timeRange = e1RMTrend[e1RMTrend.length - 1].date - e1RMTrend[0].date || 1;
-                    const x = ((d.date - e1RMTrend[0].date) / timeRange) * graphW;
+                    const timeRange = e1RMTrend.length - 1;
+                    const x = (i / timeRange) * graphW;
                     const y = graphH - ((d.e1RM - min1RM) / (max1RM - min1RM)) * graphH;
                     return (
                       <Circle key={i} cx={x} cy={y} r={4} fill={theme.colors.accentCyan} stroke={theme.colors.background} strokeWidth={2} />
@@ -124,24 +129,30 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
                 </View>
               )}
             </View>
-          </>
-        ) : (
-          <Text style={{ color: theme.colors.textMuted, textAlign: 'center', marginVertical: 20 }}>No exercise data</Text>
-        )}
-      </View>
+          </View>
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>VOLUME BREAKDOWN</Text>
       <View style={styles.chartContainer}>
-        {volumeByExercise.slice(0, 6).map((item, idx) => (
-          <View key={item.id} style={styles.barRow}>
-            <Text style={styles.barLabel} numberOfLines={1}>{item.name}</Text>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFill, { backgroundColor: [theme.colors.accentCyan, theme.colors.accentGreen, theme.colors.accentAmber, '#bf5af2', '#ff453a', '#0a84ff'][idx % 6], width: totalVolume ? `${(item.volume / totalVolume) * 100}%` : '0%' }]} />
+        {currentWeekVolumes.length > 0 ? currentWeekVolumes.map((item, idx) => {
+          const progress = Math.min((item.totalSets / MEV_BASELINE) * 100, 100);
+          const isOptimal = item.totalSets >= MEV_BASELINE;
+          return (
+            <View key={item.muscleGroup} style={styles.barRow}>
+              <Text style={styles.barLabel} numberOfLines={1}>{item.muscleGroup}</Text>
+              
+              <View style={styles.barTrack}>
+                <View style={[styles.barFill, { backgroundColor: [theme.colors.accentCyan, theme.colors.accentGreen, theme.colors.accentAmber, '#bf5af2', '#ff453a', '#0a84ff'][idx % 6], width: `${progress}%` }]} />
+              </View>
+              
+              <View style={styles.microIndicator}>
+                <View style={[styles.indicatorDot, { backgroundColor: isOptimal ? theme.colors.accentGreen : theme.colors.accentAmber }]} />
+                <Text style={styles.indicatorText}>{item.totalSets}/{MEV_BASELINE}</Text>
+              </View>
             </View>
-            <Text style={styles.barValue}>{(item.volume).toFixed(0)}</Text>
-          </View>
-        ))}
-        {volumeByExercise.length === 0 && (
+          );
+        }) : (
           <Text style={{ color: theme.colors.textMuted, textAlign: 'center' }}>No volume recorded</Text>
         )}
       </View>
@@ -158,7 +169,7 @@ const styles = StyleSheet.create({
     padding: theme.spacing.lg,
   },
   sectionTitle: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     fontSize: 14,
     color: theme.colors.textMuted,
     letterSpacing: 2,
@@ -179,7 +190,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     fontSize: 28,
     color: theme.colors.text,
   },
@@ -225,28 +236,43 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   barLabel: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     fontSize: 12,
     color: theme.colors.text,
-    width: 80,
+    width: 70,
+    textTransform: 'capitalize',
   },
   barTrack: {
     flex: 1,
-    height: 12,
+    height: 8,
     backgroundColor: theme.colors.surface,
-    borderRadius: 6,
+    borderRadius: 4,
     marginHorizontal: 12,
     overflow: 'hidden',
   },
   barFill: {
     height: '100%',
-    borderRadius: 6,
+    borderRadius: 4,
   },
-  barValue: {
+  microIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    minWidth: 46,
+    justifyContent: 'center',
+  },
+  indicatorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  indicatorText: {
     fontFamily: theme.typography.sans,
-    fontSize: 13,
+    fontSize: 11,
     color: theme.colors.textMuted,
-    width: 60,
-    textAlign: 'right',
   }
 });

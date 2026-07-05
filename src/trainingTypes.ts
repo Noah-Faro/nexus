@@ -63,3 +63,10 @@ export interface GymProfile {
   name: string;
   equipmentIncrements: Partial<Record<EquipmentType, number>>;
 }
+
+export interface VolumeStateSnapshot {
+  weekId: string;
+  muscleGroup: string;
+  totalSets: number;
+  best1RMAnchor: number | null;
+}

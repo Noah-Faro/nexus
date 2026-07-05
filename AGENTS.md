@@ -29,10 +29,30 @@ If tasks are independent, you may spin up multiple subagents to speed up the wor
 ## Subagent Routing Matrix
 - **Gemini Flash (Medium):** UI tweaks, animations, styling changes, rapid CSS adjustments.
 - **Gemini Pro:** General feature components, frontend routing, database hookups, form logic.
-- **Opus 4.6 (thinking):** Schema design, data sync engines, predictive math/algorithms, security audits.
+- **Opus 4.6 (thinking)/Gemini Pro (High):** Schema design, data sync engines, predictive math/algorithms, security audits.
 
 - You may spin up multiple subagents at a time to speed up work. Keep in mind to verify each stage works correctly before moving on to a new project.
 - Specify explicitly to the user with what model and effort level you create the subagent.
+
+## Deep Research & Context Injection
+* **Product Blueprint:** Provide a deeply researched prompt detailing the exact features, UI/UX flows, and technical stack of the target product to clone.
+* **Subagent Context:** Supply subagents with explicit architectural schemas, API contracts, and strict directory boundaries to maintain exact context.
+
+## 2. Iterative Development Cycle
+Execute a continuous loop for every product module:
+1. **Plan:** Create a detailed implementation plan for the target feature.
+2. **Build:** Write code iteratively based on the blueprint constraints.
+3. **Review:** Audit the generated code for bugs, errors, and logic flaws immediately.
+4. **Extend:** Identify necessary feature extensions or optimizations before proceeding.
+5. **Repeat:** Move to the next component in the plan and run the loop again.
+
+## 3. Coding Guidelines & Edge Cases
+* **Robustness:** Write explicit logic for edge cases, including network timeout fallbacks, retry parameters, and strict validation for null or undefined payloads.
+* **Guardrails:** Implement a hard execution cap. If a subagent enters an error-fixing loop that exceeds 5 iterations without a successful test pass, it must stop and log the full state.
+
+## 4. Orchestration & Verification
+* **Self-Supervision:** Subagents must cross-verify each other's logic against the core product prompt requirements.
+* **Final Validation:** Run automated linting and the entire unit test suite to verify the code and logic before integration.
 
 ## Core Rules for Code Reviews
 - Reject nested layouts that degrade mobile responsivity.

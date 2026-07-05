@@ -249,6 +249,8 @@ export function buildCoachHistory(
 export interface CoachOptions {
   range?: RepRange;
   incrementKg?: number;
+  primaryGoal?: 'hypertrophy' | 'strength';
+  volumeSnapshot?: import('./trainingTypes').VolumeStateSnapshot;
 }
 
 /**
@@ -261,8 +263,27 @@ export function suggestNextTarget(
   history: CoachSession[],
   options: CoachOptions = {},
 ): CoachResult {
-  const range = options.range ?? DEFAULT_REP_RANGE;
-  const incrementKg = options.incrementKg ?? WEIGHT_STEP_KG;
+  let range = options.range ?? DEFAULT_REP_RANGE;
+  let incrementKg = options.incrementKg ?? WEIGHT_STEP_KG;
+
+  if (options.primaryGoal === 'strength' && !options.range) {
+    range = { bottom: 4, top: 6 };
+  } else if (options.primaryGoal === 'hypertrophy' && !options.range) {
+    range = { bottom: 8, top: 12 };
+  }
+
+  // Use VolumeStateSnapshot if available for suggestions instead of fully scanning raw session history.
+  if (options.volumeSnapshot && options.volumeSnapshot.best1RMAnchor !== null && history.length === 0) {
+    const anchor = options.volumeSnapshot.best1RMAnchor;
+    // Assume anchor is 1RM, calculate starting weight for the rep range
+    // If it's bodyweight, anchor is reps, but we can't easily distinguish. 
+    // We'll provide a generic baseline using the Epley inversion:
+    const suggestedWeight = round1(anchor / (1 + range.bottom / 30));
+    return {
+      suggestion: { weightKg: suggestedWeight, targetReps: range.bottom },
+      reasoning: `Baseline inferred from muscle group volume snapshot. Aim for ${range.bottom}-${range.top} reps at ~${weightForTarget(suggestedWeight)}.`,
+    };
+  }
 
   const sessions = history.filter((session) => session.sets.length > 0);
 
