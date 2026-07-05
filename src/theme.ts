@@ -21,6 +21,7 @@ export const theme = {
     accentRed: '#ff453a',     // iOS Red
     accentGreen: '#32d74b',   // iOS Green
     accentCyan: '#64d2ff',    // iOS Cyan
+    accentPurple: '#bf5af2',  // iOS Purple
     // Transparent accents
     accentFade: 'rgba(10, 132, 255, 0.15)',
     accentAmberFade: 'rgba(255, 159, 10, 0.15)',

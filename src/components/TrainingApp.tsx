@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Modal } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Modal, Animated } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Play, ChevronLeft, BarChart2, List, Plus, Settings, Edit2 } from 'lucide-react-native';
 import { theme } from '../theme';
@@ -37,6 +37,19 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
   
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const isLoadedRef = useRef(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const skeletonAnim = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(skeletonAnim, { toValue: 0.8, duration: 800, useNativeDriver: true }),
+          Animated.timing(skeletonAnim, { toValue: 0.4, duration: 800, useNativeDriver: true })
+        ])
+      ).start();
+    }
+  }, [isLoading, skeletonAnim]);
 
   // Custom alert modal state
   const [alertConfig, setAlertConfig] = useState<{
@@ -87,6 +100,8 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
         }
       }
       
+      setIsLoading(false);
+
       // Allow state updates to settle, then enable reactive cloud pushes
       setTimeout(() => {
         isLoadedRef.current = true;
@@ -262,6 +277,50 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
       triggerAlert("Delete Error", "Could not delete workout session.");
     }
   };
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.backBtn}>
+            <ChevronLeft size={28} color={theme.colors.accent} style={{ marginLeft: -8 }} />
+            <Text style={styles.backText}>Vault</Text>
+          </View>
+          <Text style={styles.headerTitle} numberOfLines={1}>Training</Text>
+          <View style={styles.settingsBtn}>
+            <Settings size={22} color={theme.colors.accent} />
+          </View>
+        </View>
+        <ScrollView style={styles.content} contentContainerStyle={{ padding: theme.spacing.lg }}>
+          <Text style={styles.sectionTitle}>START WORKOUT</Text>
+          {[1, 2, 3].map(i => (
+            <Animated.View 
+              key={i} 
+              style={[
+                styles.templateCard, 
+                { borderLeftColor: theme.colors.border, opacity: skeletonAnim }
+              ]}
+            >
+              <View style={{ flex: 1, marginRight: 16 }}>
+                <View style={{ width: '60%', height: 20, backgroundColor: theme.colors.border, borderRadius: 4, marginBottom: 8 }} />
+                <View style={{ width: '40%', height: 16, backgroundColor: theme.colors.border, borderRadius: 4 }} />
+              </View>
+              <View style={{ width: 32, height: 32, backgroundColor: theme.colors.border, borderRadius: 8, marginRight: 8 }} />
+              <View style={[styles.startBtn, { backgroundColor: theme.colors.border, width: 32, height: 32 }]} />
+            </Animated.View>
+          ))}
+          <Animated.View style={[styles.createTemplateBtn, { opacity: skeletonAnim }]}>
+            <View style={{ width: 20, height: 20, backgroundColor: theme.colors.border, borderRadius: 10 }} />
+            <View style={{ width: 120, height: 20, backgroundColor: theme.colors.border, borderRadius: 4, marginLeft: 8 }} />
+          </Animated.View>
+          <Animated.View style={[styles.statsRow, { opacity: skeletonAnim }]}>
+            <View style={[styles.statCard, { height: 80, backgroundColor: theme.colors.surface }]} />
+            <View style={[styles.statCard, { height: 80, backgroundColor: theme.colors.surface }]} />
+          </Animated.View>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -482,9 +541,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   statCardText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     color: theme.colors.text,
     marginTop: 8,
-    fontWeight: theme.typography.weight.medium,
   }
 });

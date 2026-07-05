@@ -292,16 +292,14 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 22,
-    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
     marginBottom: theme.spacing.md,
   },
   subHeader: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 17,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginTop: theme.spacing.sm,
     marginBottom: theme.spacing.sm,
@@ -322,9 +320,8 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.border,
   },
   graphLabel: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 14,
-    fontWeight: theme.typography.weight.medium,
     color: theme.colors.text,
   },
   canvasWrapper: {
@@ -361,9 +358,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   inspectorValue: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     color: theme.colors.text,
     fontSize: 15,
-    fontWeight: theme.typography.weight.semibold,
   },
 });

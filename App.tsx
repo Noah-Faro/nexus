@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, View, SafeAreaView, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image } from 'react-native';
+import { StyleSheet, View, SafeAreaView, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image, Text } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { useFonts, Outfit_400Regular, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
@@ -28,7 +28,6 @@ import GraphView from './src/components/GraphView';
 import CalendarHeatmap from './src/components/CalendarHeatmap';
 import SettingsModal from './src/components/SettingsModal';
 import GoalModal from './src/components/GoalModal';
-import ConsoleHelpModal from './src/components/ConsoleHelpModal';
 import * as Notifications from 'expo-notifications';
 import AppAlertModal, { AppAlertButton } from './src/components/AppAlertModal';
 import PasswordPromptModal from './src/components/PasswordPromptModal';
@@ -62,7 +61,6 @@ export default function App() {
   const [ironCommand, setIronCommand] = useState<string | undefined>(undefined);
   const [isLoggingExpanded, setIsLoggingExpanded] = useState(false); // Collapsed by default for easy log viewing
   const [goalModalVisible, setGoalModalVisible] = useState(false); // Custom celebration modal
-  const [helpModalVisible, setHelpModalVisible] = useState(false); // Custom console help modal
   const [brewLabVisible, setBrewLabVisible] = useState(false); // Custom liquid synthesis bottom sheet
   const [isWaitingForUnlock, setIsWaitingForUnlock] = useState(false); // Loading screen status
 
@@ -290,33 +288,6 @@ export default function App() {
     }
   };
 
-  const handleVaultLogDrink = (amount: number, type: string, isDecafOverride?: boolean) => {
-    setSelectedType(type);
-    const isDecaf = isDecafOverride !== undefined ? isDecafOverride : (decafPrefs[type] || false);
-    
-    // Check if settings exist, compute whether this drink achieves the daily goal
-    const config = LIQUID_CONFIGS[type as LiquidType] || settings?.customLiquids?.[type] || LIQUID_CONFIGS['water'];
-    const effectiveAmount = amount * config.multiplier;
-    const currentProgress = getTodayProgress(logs, settings || DEFAULT_SETTINGS);
-    const newEffective = currentProgress.totalEffective + effectiveAmount;
-    
-    // Goal is completed if it crosses the goal threshold and wasn't already completed
-    const isGoalAchieved = newEffective >= currentProgress.goal && currentProgress.totalEffective < currentProgress.goal;
-
-    handleLogDrink(amount, isDecaf, type);
-
-    // Only trigger the standard success alert modal if we aren't displaying the Goal Completion Celebration modal,
-    // which prevents two React Native modals from opening simultaneously and freezing the view hierarchy.
-    if (!isGoalAchieved) {
-      const label = isDecaf ? `Decaf ${config.label}` : config.label;
-      triggerAlert(
-        'Drink Logged',
-        `Registered ${amount}ml of ${label} successfully from Vault Console.`,
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
   // Ref to track last lag notification timestamp
   const lastLagNotificationTimeRef = useRef<number>(0);
   // Ref to track last catchup timestamp (actual >= target)
@@ -461,8 +432,8 @@ export default function App() {
     const triggerTimeMs = Math.max(Date.now() + 30 * 60 * 1000, T_trigger_timestamp);
 
     // Calculate water deficit at the trigger time
-    const ratePerHour = goal / activeDuration;
-    const deficitAtTrigger = Math.round(ratePerHour * 0.5);
+    const targetAtTrigger = goal * Math.min(1, (T_trigger_dec - wakeHour) / activeDuration);
+    const deficitAtTrigger = Math.max(0, Math.round(targetAtTrigger - actual));
 
     // Check if sleep hours would intersect trigger time
     const triggerDate = new Date(triggerTimeMs);
@@ -524,18 +495,37 @@ export default function App() {
     const typeToLog = drinkType || selectedType;
     const config = LIQUID_CONFIGS[typeToLog as LiquidType] || settings?.customLiquids?.[typeToLog] || LIQUID_CONFIGS['water'];
     
-    // Coffee flat caffeine math: Coffee logged below 250ml records 80mg, otherwise scales linearly
     let caffeineMg = undefined;
-    if (config.caffeineMg && !isDecaf) {
-      if (typeToLog === 'coffee') {
-        if (amount < 250) {
-          caffeineMg = 80;
+    if (!isDecaf) {
+      if (config.caffeineLookup) {
+        const exactMatch = config.caffeineLookup.find(l => l.ml === amount);
+        if (exactMatch) {
+          caffeineMg = exactMatch.mg;
         } else {
-          caffeineMg = Math.round((amount / 250) * 80);
+          const sortedLookup = [...config.caffeineLookup].sort((a, b) => a.ml - b.ml);
+          let lower = sortedLookup[0];
+          let upper = sortedLookup[sortedLookup.length - 1];
+          for (let i = 0; i < sortedLookup.length - 1; i++) {
+            if (amount > sortedLookup[i].ml && amount <= sortedLookup[i+1].ml) {
+              lower = sortedLookup[i];
+              upper = sortedLookup[i+1];
+              break;
+            }
+          }
+          if (amount < lower.ml) {
+            caffeineMg = Math.round((amount / lower.ml) * lower.mg);
+          } else if (amount > upper.ml) {
+            caffeineMg = Math.round((amount / upper.ml) * upper.mg);
+          } else {
+            const ratio = (amount - lower.ml) / (upper.ml - lower.ml);
+            caffeineMg = Math.round(lower.mg + ratio * (upper.mg - lower.mg));
+          }
         }
-      } else {
-        caffeineMg = Math.round((amount / config.standardPreset) * config.caffeineMg);
-      }
+        } else if (config.caffeineMg) {
+          caffeineMg = config.caffeineIsFixed 
+            ? config.caffeineMg 
+            : Math.round((amount / config.standardPreset) * config.caffeineMg);
+        }
     }
 
     const newLog: DrinkLog = {
@@ -622,108 +612,6 @@ export default function App() {
     handleCloudAutoPush();
   };
 
-  // Process slash commands from Obsidian command console
-  const handleCommand = async (cmdString: string) => {
-    const parts = cmdString.trim().split(' ');
-    const command = parts[0].toLowerCase();
-
-    switch (command) {
-      case '/help':
-        setHelpModalVisible(true);
-        break;
-
-      case '/goal': {
-        const amt = parseInt(parts[1], 10);
-        if (isNaN(amt) || amt <= 0) {
-          triggerAlert('Invalid Parameter', 'Please provide a valid volume in ml (e.g. /goal 3000)');
-          return;
-        }
-        const updated = {
-          ...settings,
-          useAutoGoal: false,
-          customGoal: amt
-        };
-        setSettings(updated);
-        await saveSettings(updated);
-        triggerAlert('Goal Locked', `Intake target locked to: ${amt}ml`);
-        break;
-      }
-
-      case '/weight': {
-        const wt = parseFloat(parts[1]);
-        if (isNaN(wt) || wt <= 0) {
-          triggerAlert('Invalid Parameter', 'Please provide a valid numeric weight (e.g. /weight 75)');
-          return;
-        }
-        const updated: UserSettings = {
-          ...settings,
-          weight: wt,
-          useAutoGoal: true // return to auto computation
-        };
-        setSettings(updated);
-        await saveSettings(updated);
-        const computed = calculateGoal(updated);
-        triggerAlert('Weight Updated', `Weight set to ${wt}${settings.weightUnit}. Auto-calculated target: ${computed}ml`);
-        break;
-      }
-
-      case '/clear':
-        triggerAlert(
-          "Reset Today's Logs?",
-          "This will delete all logged liquid entries for today. Are you sure?",
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Clear', 
-              style: 'destructive',
-              onPress: async () => {
-                // Keep history, wipe only today's dates
-                const todayKey = todayProgress.date;
-                
-                // Let's filter correctly by ensuring standard key comparison
-                const filtered = logs.filter(log => {
-                  const date = new Date(log.timestamp);
-                  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-                  return key !== todayKey;
-                });
-
-                setLogs(filtered);
-                await saveLogs(filtered);
-                handleCloudAutoPush();
-                triggerAlert('Cleared', "Today's logs have been cleared.");
-              }
-            }
-          ]
-        );
-        break;
-
-      case '/reset':
-        triggerAlert(
-          'Wipe Entire Database?',
-          'This will permanently delete ALL historical hydration logs and restore profile settings to defaults. This action is irreversible!',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Wipe Database',
-              style: 'destructive',
-              onPress: async () => {
-                setLogs([]);
-                setSettings(DEFAULT_SETTINGS);
-                await saveLogs([]);
-                await saveSettings(DEFAULT_SETTINGS);
-                handleCloudAutoPush();
-                triggerAlert('Database Wiped', 'Application restored to clean state.');
-              }
-            }
-          ]
-        );
-        break;
-
-      default:
-        triggerAlert('Command Unknown', `Shortcut "${command}" was not recognized. Type /help to see shortcuts.`);
-        break;
-    }
-  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -751,7 +639,6 @@ export default function App() {
             }}
             onUpdateSettings={handleSaveSettings}
             activeDaysCount={Object.keys(aggregatedProgress).filter(k => aggregatedProgress[k].logs.length > 0).length}
-            onLogDrinkDirect={handleVaultLogDrink}
           />
         ) : activeApp === 'training' ? (
           <TrainingApp 
@@ -806,7 +693,6 @@ export default function App() {
                   <CommandPalette 
                     selectedType={selectedType}
                     onLog={handleLogDrink}
-                    onCommand={handleCommand}
                     settings={settings}
                   />
                 </KeyboardAvoidingView>
@@ -838,13 +724,6 @@ export default function App() {
           visible={goalModalVisible}
           onClose={() => setGoalModalVisible(false)}
           effectiveIntake={todayProgress.totalEffective}
-        />
-
-        {/* Custom Obsidian Console Help Modal */}
-        <ConsoleHelpModal 
-          visible={helpModalVisible}
-          onClose={() => setHelpModalVisible(false)}
-          settings={settings}
         />
 
         {/* Custom Obsidian Reusable Alert Modal */}

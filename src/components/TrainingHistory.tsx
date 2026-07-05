@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Trash2, ChevronDown, ChevronUp } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { WorkoutSession, Exercise } from '../trainingTypes';
 import { getExerciseById } from '../utils';
 import { AppAlertButton } from './AppAlertModal';
+import CoachCard from './CoachCard';
 
 interface TrainingHistoryProps {
   sessions: WorkoutSession[];
@@ -43,6 +45,7 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
           <TouchableOpacity 
             style={styles.deleteAction} 
             onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               triggerAlert('Delete Session', 'Are you sure you want to delete this session?', [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Delete', style: 'destructive', onPress: () => onDeleteSession(session.id) }
@@ -58,13 +61,19 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
             <TouchableOpacity 
               style={{ flex: 1, marginRight: 8 }}
               activeOpacity={0.7}
-              onPress={() => setExpandedId(isExpanded ? null : session.id)}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setExpandedId(isExpanded ? null : session.id);
+              }}
             >
               <Text style={styles.templateName}>{session.templateName} • Session #{session.sessionNumber}</Text>
               <Text style={styles.date}>{dateString} • {session.durationMinutes || 0} min</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() => onEditSession(session)}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onEditSession(session);
+              }}
               style={styles.editBtn}
             >
               <Text style={styles.editBtnText}>Edit</Text>
@@ -73,7 +82,10 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
           <TouchableOpacity 
             style={styles.cardBody} 
             activeOpacity={0.7}
-            onPress={() => setExpandedId(isExpanded ? null : session.id)}
+            onPress={() => {
+              Haptics.selectionAsync();
+              setExpandedId(isExpanded ? null : session.id);
+            }}
           >
             <View>
               <Text style={styles.details}>{uniqueExercises} exercises • {session.sets.length} sets</Text>
@@ -92,9 +104,19 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
                 const exSets = session.sets.filter(s => s.exerciseId === exId);
                 if (exSets.length === 0) return null;
 
+                // History up to (not including) this session for coach context
+                const historyUpToHere = sessions.filter(
+                  (s) => s.startTime < session.startTime
+                );
+
                 return (
                    <View key={exId} style={styles.exBlock}>
                     <Text style={styles.exName}>{name}</Text>
+                    <CoachCard
+                      exerciseId={exId}
+                      history={historyUpToHere}
+                      incrementKg={exDef?.incrementStep}
+                    />
                     {exSets.map(s => (
                       <View key={s.id} style={styles.setRow}>
                         <Text style={styles.setText}>Set {s.setNumber}</Text>
@@ -162,7 +184,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   templateName: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     fontSize: 16,
     color: theme.colors.text,
     marginBottom: 2,
@@ -186,10 +208,9 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   volume: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 14,
     color: theme.colors.accentGreen,
-    fontWeight: theme.typography.weight.medium,
   },
   deleteAction: {
     backgroundColor: theme.colors.accentRed,
@@ -210,7 +231,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   exName: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     color: theme.colors.text,
     fontSize: 14,
     marginBottom: 6,

@@ -11,6 +11,8 @@ import StepperInput from './StepperInput';
 import SheetHeader from './SheetHeader';
 import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 import SegmentedControl from './SegmentedControl';
+import { loadGymProfiles, saveGymProfiles, getActiveGymId, setActiveGymId, defaultGymProfile } from '../gymStorage';
+import { GymProfile, EquipmentType } from '../trainingTypes';
 
 interface TrainingSettingsProps {
   onClose: () => void;
@@ -26,6 +28,9 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<CategoryType>('all');
   const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null);
+
+  const [gymProfiles, setGymProfiles] = useState<GymProfile[]>([defaultGymProfile]);
+  const [activeGymId, setActiveGymIdState] = useState<string>('default');
 
   // Local alert modal state
   const [alertConfig, setAlertConfig] = useState<{
@@ -55,6 +60,11 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
       
       const loadedDefaults = await loadExerciseDefaults();
       setDefaults(loadedDefaults);
+
+      const loadedProfiles = await loadGymProfiles();
+      setGymProfiles(loadedProfiles);
+      const loadedActive = await getActiveGymId();
+      setActiveGymIdState(loadedActive);
     }
     loadData();
   }, [customExercises]);
@@ -71,6 +81,8 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
 
   const handleSave = async () => {
     await saveExerciseDefaults(defaults);
+    await saveGymProfiles(gymProfiles);
+    await setActiveGymId(activeGymId);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onClose();
   };
@@ -220,9 +232,33 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
       <View style={styles.modalContent}>
         <View style={{ paddingHorizontal: 16 }}>
           <SheetHeader
-            title="Exercise Defaults"
+            title="Training Settings"
             onClose={onClose}
           />
+        </View>
+
+        <View style={styles.tabsContainer}>
+          <Text style={styles.sectionTitle}>Equipment Increments</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 16 }}>
+            {(['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight'] as EquipmentType[]).map(eq => {
+              const activeProfile = gymProfiles.find(p => p.id === activeGymId) || gymProfiles[0];
+              const val = activeProfile.equipmentIncrements[eq] ?? 2.5;
+              return (
+                <View key={eq} style={styles.incrementCard}>
+                  <Text style={styles.controlLabel}>{eq}</Text>
+                  <StepperInput
+                    value={val}
+                    onChange={(newVal) => {
+                      const updated = gymProfiles.map(p => p.id === activeGymId ? { ...p, equipmentIncrements: { ...p.equipmentIncrements, [eq]: newVal } } : p);
+                      setGymProfiles(updated);
+                    }}
+                    min={0.25}
+                    step={0.25}
+                  />
+                </View>
+              );
+            })}
+          </ScrollView>
         </View>
 
         <View style={styles.searchContainer}>
@@ -305,6 +341,20 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     overflow: 'hidden',
   },
+  sectionTitle: {
+    fontFamily: theme.typography.bold,
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  incrementCard: {
+    backgroundColor: theme.colors.surfaceElevated,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    gap: 8,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -336,8 +386,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#222222',
-    backgroundColor: '#050505',
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   headerLabelLeft: {
     fontFamily: theme.typography.bold,
@@ -407,7 +457,7 @@ const styles = StyleSheet.create({
   saveBtnText: {
     fontFamily: theme.typography.semibold,
     fontSize: 17,
-    color: '#000000',
+    color: theme.colors.background,
   },
   settingAccordionContainer: {
     backgroundColor: 'transparent',
@@ -455,9 +505,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: 16,
     paddingHorizontal: 16,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.surface,
     borderTopWidth: 1,
-    borderTopColor: '#111111',
+    borderTopColor: theme.colors.borderMuted,
   },
   controlItem: {
     alignItems: 'center',
@@ -473,7 +523,7 @@ const styles = StyleSheet.create({
   unitToggle: {
     backgroundColor: theme.colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: '#222222',
+    borderColor: theme.colors.border,
     borderRadius: 6,
     width: 60,
     height: 38,
@@ -482,7 +532,7 @@ const styles = StyleSheet.create({
   },
   unitToggleLbs: {
     borderColor: theme.colors.accent,
-    backgroundColor: '#0f2027',
+    backgroundColor: theme.colors.accentFade,
   },
   unitToggleText: {
     fontFamily: theme.typography.bold,

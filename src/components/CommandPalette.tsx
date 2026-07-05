@@ -7,25 +7,16 @@ import { LIQUID_CONFIGS, LiquidType, UserSettings } from '../types';
 interface CommandPaletteProps {
   selectedType: string;
   onLog: (amount: number) => void;
-  onCommand: (cmd: string) => void;
   settings: UserSettings;
 }
 
-export default function CommandPalette({ selectedType, onLog, onCommand, settings }: CommandPaletteProps) {
+export default function CommandPalette({ selectedType, onLog, settings }: CommandPaletteProps) {
   const [inputVal, setInputVal] = useState('');
 
   const handleSubmit = () => {
     if (!inputVal.trim()) return;
     
-    // Check if it's a command
-    if (inputVal.startsWith('/')) {
-      onCommand(inputVal);
-      setInputVal('');
-      Keyboard.dismiss();
-      return;
-    }
-
-    // Otherwise, parse as number
+    // Parse as number
     const amount = parseInt(inputVal, 10);
     if (!isNaN(amount) && amount > 0) {
       onLog(amount);
@@ -44,9 +35,9 @@ export default function CommandPalette({ selectedType, onLog, onCommand, setting
           style={styles.textInput}
           value={inputVal}
           onChangeText={setInputVal}
-          placeholder={`Add ${currentConfig.label} (e.g. 250, /goal 3000)`}
+          placeholder={`Add ${currentConfig.label} (e.g. 250)`}
           placeholderTextColor={theme.colors.textMuted}
-          keyboardType="default"
+          keyboardType="numeric"
           returnKeyType="go"
           onSubmitEditing={handleSubmit}
           autoCapitalize="none"

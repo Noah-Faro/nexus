@@ -64,11 +64,11 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
 
   const getEquipmentColor = (equipment: string) => {
     switch (equipment) {
-      case 'barbell': return '#64d2ff'; // Cyan
-      case 'dumbbell': return '#ff9f0a'; // Amber
-      case 'cable': return '#bf5af2'; // Purple
-      case 'bodyweight': return '#32d74b'; // Green
-      case 'machine': return '#8e8e93'; // Slate
+      case 'barbell': return theme.colors.accentCyan;
+      case 'dumbbell': return theme.colors.accentAmber;
+      case 'cable': return theme.colors.accentPurple;
+      case 'bodyweight': return theme.colors.accentGreen;
+      case 'machine': return theme.colors.textMuted;
       default: return theme.colors.textMuted;
     }
   };
@@ -92,7 +92,23 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
         activeOpacity={0.7}
       >
         <View style={styles.itemContent}>
-          <Text style={styles.exerciseName}>{ex.name}</Text>
+          <View style={styles.itemRow}>
+            <Text style={styles.exerciseName} numberOfLines={1}>{ex.name}</Text>
+            <View style={styles.groupBadges}>
+              <View style={styles.groupBadge}>
+                <Text style={styles.groupBadgeText}>
+                  {ex.muscleGroup.toUpperCase()}
+                </Text>
+              </View>
+              {ex.primaryMuscle && (
+                <View style={[styles.groupBadge, { backgroundColor: theme.colors.surfaceSecondary }]}>
+                  <Text style={[styles.groupBadgeText, { color: theme.colors.text }]}>
+                    {ex.primaryMuscle.toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
           <View style={styles.badgeRow}>
             {ex.isCustom && (
               <View style={[styles.badge, styles.customBadge]}>
@@ -104,11 +120,6 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
                 {ex.equipment.toUpperCase()}
               </Text>
             </View>
-            <View style={styles.groupBadge}>
-              <Text style={styles.groupBadgeText}>
-                {ex.muscleGroup.toUpperCase()}
-              </Text>
-            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -118,7 +129,7 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-        <View style={{ paddingHorizontal: 16 }}>
+        <View style={{ paddingHorizontal: theme.spacing.md }}>
           <SheetHeader
             title="Select Exercise"
             onClose={onClose}
@@ -126,7 +137,7 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
               <TouchableOpacity onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setSynthVisible(true);
-              }} style={{ padding: 4 }}>
+              }} style={{ padding: theme.spacing.xs }}>
                 <Plus size={24} color={theme.colors.text} />
               </TouchableOpacity>
             }
@@ -241,7 +252,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionTitle: {
-    fontFamily: 'Outfit_700Bold',
+    fontFamily: theme.typography.bold,
     fontSize: 12,
     letterSpacing: 1.5,
     color: theme.colors.textMuted,
@@ -249,27 +260,40 @@ const styles = StyleSheet.create({
   sectionDivider: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#222222',
+    backgroundColor: theme.colors.border,
   },
   exerciseItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#111111',
+    borderBottomColor: theme.colors.borderMuted,
   },
   itemContent: {
     flexDirection: 'column',
-    gap: 6,
+    gap: theme.spacing.xs,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  groupBadges: {
+    flexDirection: 'row',
+    gap: theme.spacing.xs,
+    alignItems: 'center',
+    flexShrink: 0,
   },
   exerciseName: {
-    fontFamily: 'Outfit_600SemiBold',
-    fontSize: 16,
+    fontFamily: theme.typography.semibold,
+    fontSize: 15,
     color: theme.colors.text,
+    flexShrink: 1,
   },
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     alignItems: 'center',
   },
   badge: {
@@ -279,31 +303,30 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   badgeText: {
-    fontFamily: 'Outfit_600SemiBold',
-    fontSize: 9,
+    fontFamily: theme.typography.semibold,
+    fontSize: 8,
     letterSpacing: 0.5,
   },
   customBadge: {
-    backgroundColor: '#ff453a',
-    borderColor: '#ff453a',
+    backgroundColor: theme.colors.accentRed,
+    borderColor: theme.colors.accentRed,
   },
   customBadgeText: {
-    fontFamily: 'Outfit_700Bold',
-    fontSize: 9,
-    color: '#ffffff',
+    fontFamily: theme.typography.bold,
+    fontSize: 8,
+    color: theme.colors.text,
     letterSpacing: 0.5,
   },
   groupBadge: {
     backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: theme.borderRadius.xs,
+    paddingHorizontal: theme.spacing.xs,
+    paddingVertical: 1,
   },
   groupBadgeText: {
-    fontFamily: theme.typography.sans,
-    fontSize: 9,
+    fontFamily: theme.typography.semibold,
+    fontSize: 8,
     color: theme.colors.textMuted,
-    fontWeight: '600',
     letterSpacing: 0.5,
   },
   emptyContainer: {

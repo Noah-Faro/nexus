@@ -1,15 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Check, ChevronDown, ChevronUp, Trash2, Plus } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronUp, Trash2, Plus, Info } from 'lucide-react-native';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { theme } from '../theme';
 import { WorkoutSession, LoggedSet, TemplateExercise, Exercise, ExerciseDefaults } from '../trainingTypes';
 import ExercisePickerModal from './ExercisePickerModal';
 import { generateId, getExerciseById } from '../utils';
 import StepperInput from './StepperInput';
+import CoachCard from './CoachCard';
 import { AppAlertButton } from './AppAlertModal';
 import { saveActiveSession } from '../trainingStorage';
+import { getActiveGymProfile } from '../gymStorage';
+
+const RPE_VALUES = [5, 6, 7, 8, 9, 10] as const;
 
 interface TrainingSessionViewProps {
   session: WorkoutSession;
@@ -56,7 +60,13 @@ export default function TrainingSessionView({ session, templateExercises, custom
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
   const [currentWeight, setCurrentWeight] = useState(20);
   const [currentReps, setCurrentReps] = useState(8);
+  const [currentRpe, setCurrentRpe] = useState(8);
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [gymProfile, setGymProfile] = useState<any>(null);
+
+  useEffect(() => {
+    getActiveGymProfile().then(setGymProfile);
+  }, []);
 
   const activeTemplateEx = activeExerciseIndex >= 0 && activeExerciseIndex < sessionExercises.length
     ? sessionExercises[activeExerciseIndex]
@@ -67,17 +77,29 @@ export default function TrainingSessionView({ session, templateExercises, custom
   // Load defaults when active exercise changes
   useEffect(() => {
     if (activeExDef) {
-      const defaults = exerciseDefaults[activeExDef.id];
-      if (defaults) {
-        setCurrentWeight(defaults.defaultWeight);
-        setCurrentReps(defaults.defaultReps);
+      const prevSession = history.find(s => s.id !== session.id && s.sets.some(set => set.exerciseId === activeExDef.id));
+      const prevSets = prevSession?.sets.filter(s => s.exerciseId === activeExDef.id);
+      
+      if (prevSets && prevSets.length > 0) {
+        const lastSet = prevSets[prevSets.length - 1];
+        setCurrentWeight(lastSet.weight);
+        setCurrentReps(lastSet.reps);
+        setCurrentRpe(lastSet.rpe || 8);
       } else {
-        // Fallback generic defaults
-        setCurrentWeight(20);
-        setCurrentReps(10);
+        const defaults = exerciseDefaults[activeExDef.id];
+        if (defaults) {
+          setCurrentWeight(defaults.defaultWeight);
+          setCurrentReps(defaults.defaultReps);
+          setCurrentRpe(8);
+        } else {
+          // Fallback generic defaults
+          setCurrentWeight(20);
+          setCurrentReps(10);
+          setCurrentRpe(8);
+        }
       }
     }
-  }, [activeExerciseIndex, activeExDef?.id]);
+  }, [activeExerciseIndex, activeExDef?.id, history, session.id]);
 
   useEffect(() => {
     if (!session.endTime) {
@@ -118,6 +140,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
       weight: currentWeight,
       weightUnit: activeUnit,
       reps: currentReps,
+      rpe: currentRpe,
       timestamp: Date.now(),
       estimated1RM: Math.round(currentWeight * (1 + currentReps / 30))
     };
@@ -154,12 +177,6 @@ export default function TrainingSessionView({ session, templateExercises, custom
       });
     });
   };
-
-  const incrementWeight = () => setCurrentWeight(prev => Number((prev + (activeExDef?.incrementStep || 2.5)).toFixed(1)));
-  const decrementWeight = () => setCurrentWeight(prev => Math.max(0, Number((prev - (activeExDef?.incrementStep || 2.5)).toFixed(1))));
-  
-  const incrementReps = () => setCurrentReps(prev => prev + 1);
-  const decrementReps = () => setCurrentReps(prev => Math.max(1, prev - 1));
 
   const handleAddExercise = (exerciseId: string) => {
     const newEx: TemplateExercise = {
@@ -216,10 +233,19 @@ export default function TrainingSessionView({ session, templateExercises, custom
     }
   };
 
+  const showRpeInfo = () => {
+    triggerAlert(
+      'Rate of Perceived Exertion',
+      '10 = absolute failure\n9 = 1 rep left in the tank\n8 = 2 reps left\n7 = 3 reps left\n6 = 4 reps left\n5 = easy warm-up weight',
+      [{ text: 'Got it', style: 'default' }],
+    );
+  };
+
   const renderExerciseCard = (tEx: TemplateExercise, index: number) => {
     const exDef = getExerciseById(tEx.exerciseId, customExercises);
     if (!exDef) return null;
     const exUnit = (exerciseDefaults[exDef.id]?.weightUnit) || exDef.weightUnit || 'kg';
+    const incrementStep = gymProfile?.equipmentIncrements?.[exDef.equipment] ?? exDef.incrementStep ?? 2.5;
 
     const isExpanded = index === activeExerciseIndex;
     const completedSets = sets.filter(s => s.exerciseId === exDef.id);
@@ -233,7 +259,16 @@ export default function TrainingSessionView({ session, templateExercises, custom
         >
           <View style={{flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8}}>
             <View style={{flex: 1}}>
-              <Text style={styles.exerciseName} numberOfLines={1} ellipsizeMode="tail">{exDef.name}</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+                <Text style={styles.exerciseName} numberOfLines={1} ellipsizeMode="tail">{exDef.name}</Text>
+                {exDef.primaryMuscle && (
+                  <View style={[styles.groupBadge, { backgroundColor: theme.colors.surfaceSecondary }]}>
+                    <Text style={[styles.groupBadgeText, { color: theme.colors.text }]}>
+                      {exDef.primaryMuscle.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <Text style={styles.exerciseSub}>{completedSets.length} / {Math.max(completedSets.length, tEx.targetSets)} sets completed</Text>
             </View>
           </View>
@@ -259,13 +294,21 @@ export default function TrainingSessionView({ session, templateExercises, custom
 
         {isExpanded && (
           <View style={styles.exerciseBody}>
+            {/* Coach Card — always first inside expanded exercise */}
+            <CoachCard
+              exerciseId={exDef.id}
+              history={history}
+              incrementKg={incrementStep}
+              excludeSessionId={session.id}
+            />
+
             {/* Completed Sets */}
             {completedSets.map(s => (
               <Swipeable
                 key={s.id}
                 renderRightActions={() => (
                   <TouchableOpacity style={styles.deleteAction} onPress={() => handleDeleteSet(s.id)}>
-                    <Trash2 size={20} color="#fff" />
+                    <Trash2 size={20} color={theme.colors.text} />
                   </TouchableOpacity>
                 )}
               >
@@ -277,44 +320,30 @@ export default function TrainingSessionView({ session, templateExercises, custom
               </Swipeable>
             ))}
 
-            {/* Ghost Row */}
-            {(() => {
-              const prevSession = history.find(s => s.id !== session.id && s.sets.some(set => set.exerciseId === exDef.id));
-              const prevSets = prevSession?.sets.filter(s => s.exerciseId === exDef.id);
-              if (prevSets && prevSets.length > 0) {
-                const bestSet = prevSets.reduce((a, b) => a.weight * a.reps > b.weight * b.reps ? a : b);
-                return (
-                  <View style={styles.ghostRow}>
-                    <Text style={styles.ghostText}>Last: {prevSets.length} sets (Best: {bestSet.weight}{bestSet.weightUnit} × {bestSet.reps})</Text>
-                  </View>
-                );
-              }
-              return null;
-            })()}
+            {/* Active Set Input */}
             <View style={styles.activeSetContainer}>
-              {/* Active Set Input - Always shown (Dynamic set count) */}
               <View style={styles.setRowActive}>
                 <Text style={styles.setTextActive}>Set {completedSets.length + 1}</Text>
                 <Text style={styles.setTextActive}>{currentWeight}{exUnit} × {currentReps}</Text>
-                <View style={styles.rmBadge}>
-                  <Text style={styles.rmBadgeText}>Est 1RM: {Math.round(currentWeight * (1 + currentReps / 30))} {exUnit}</Text>
-                </View>
               </View>
- 
-              {/* Pickers */}
-              <View style={styles.pickersContainer}>
-                <View style={styles.pickerCol}>
-                  <Text style={styles.pickerLabel}>Weight ({exUnit})</Text>
+
+              {/* Weight stepper — full width */}
+              <View style={styles.inputRow}>
+                <Text style={styles.inputLabel}>Weight ({exUnit})</Text>
+                <View style={styles.inputControl}>
                   <StepperInput
                     value={currentWeight}
                     onChange={(val) => setCurrentWeight(Number(val.toFixed(1)))}
                     min={0}
-                    step={exDef.incrementStep || 2.5}
+                    step={incrementStep}
                   />
                 </View>
-                
-                <View style={styles.pickerCol}>
-                  <Text style={styles.pickerLabel}>Reps</Text>
+              </View>
+
+              {/* Reps stepper — full width */}
+              <View style={styles.inputRow}>
+                <Text style={styles.inputLabel}>Reps</Text>
+                <View style={styles.inputControl}>
                   <StepperInput
                     value={currentReps}
                     onChange={setCurrentReps}
@@ -324,8 +353,88 @@ export default function TrainingSessionView({ session, templateExercises, custom
                 </View>
               </View>
 
+              {/* RPE — row of numbered circle buttons (5-10) */}
+              <View style={styles.rpeSection}>
+                <View style={styles.rpeLabelRow}>
+                  <Text style={styles.inputLabel}>RPE</Text>
+                  <TouchableOpacity onPress={showRpeInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Info size={14} color={theme.colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.rpeRow}>
+                  {RPE_VALUES.map((val) => {
+                    const isSelected = currentRpe === val;
+                    return (
+                      <TouchableOpacity
+                        key={val}
+                        style={[styles.rpeCircle, isSelected && styles.rpeCircleSelected]}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          setCurrentRpe(val);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.rpeCircleText, isSelected && styles.rpeCircleTextSelected]}>
+                          {val}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Intra-Set RPE Feedback Snippet */}
+              {(() => {
+                if (completedSets.length === 0) return null;
+                const lastSet = completedSets[completedSets.length - 1];
+                if (!lastSet.rpe) return null;
+                
+                let feedbackText = '';
+                const weight = lastSet.weight;
+                const reps = lastSet.reps;
+                
+                // maxReps logic
+                const defaultReps = activeExDef ? exerciseDefaults[activeExDef.id]?.defaultReps : undefined;
+                const maxReps = activeTemplateEx?.targetReps || defaultReps || 12;
+                
+                if (reps >= maxReps && lastSet.rpe <= 7) {
+                  if (weight === 0) {
+                    feedbackText = `You're at the top of the rep range. You have reps left, consider pushing for **${reps + 1} or ${reps + 2}** reps next set.`;
+                  } else {
+                    const nextWeight = weight + incrementStep;
+                    feedbackText = `You're at the top of the rep range. Bump to **${nextWeight}${exUnit}** next set.`;
+                  }
+                } else if (lastSet.rpe <= 7) {
+                  const nextWeight = weight + incrementStep;
+                  const nextReps = reps + 1;
+                  if (weight === 0) {
+                    feedbackText = `You have reps left in the tank. Push for **${nextReps} or ${nextReps + 1}** reps next set.`;
+                  } else {
+                    feedbackText = `You have reps left in the tank. Consider bumping to **${nextWeight}${exUnit}** or pushing for **${nextReps} or ${nextReps + 1}** reps next set.`;
+                  }
+                } else if (lastSet.rpe <= 9) {
+                  feedbackText = `Great intensity! Keep **${weight}${exUnit}** and aim to match **${reps}** reps.`;
+                } else {
+                  const dropWeight = Math.max(0, weight - incrementStep * 2);
+                  if (weight === 0) {
+                    feedbackText = `Max effort! Try to match **${reps}** reps next set.`;
+                  } else {
+                    feedbackText = `Max effort! Hold **${weight}${exUnit}** and try to match **${reps}** reps, or drop to **${dropWeight}${exUnit}** if you're feeling fatigued.`;
+                  }
+                }
+                
+                const parts = feedbackText.split(/\*\*(.*?)\*\*/g);
+                return (
+                  <Text style={styles.rpeFeedback}>
+                    {parts.map((part, i) => 
+                      i % 2 === 1 ? <Text key={i} style={{fontFamily: theme.typography.semibold}}>{part}</Text> : part
+                    )}
+                  </Text>
+                );
+              })()}
+
               <TouchableOpacity style={styles.logBtn} onPress={handleLogSet}>
-                <Check size={20} color="#000" style={{ marginRight: 8 }} />
+                <Check size={20} color={theme.colors.background} style={{ marginRight: 8 }} />
                 <Text style={styles.logBtnText}>Log Set</Text>
               </TouchableOpacity>
             </View>
@@ -387,7 +496,7 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.border,
   },
   timerText: {
-    fontFamily: 'Outfit_400Regular', // Monospace-ish is ideal but Outfit works
+    fontFamily: theme.typography.sans,
     color: theme.colors.textMuted,
     marginLeft: 8,
     fontSize: 16,
@@ -416,7 +525,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   exerciseName: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     fontSize: 16,
     color: theme.colors.text,
   },
@@ -426,9 +535,21 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     marginTop: 4,
   },
+  groupBadge: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  groupBadgeText: {
+    fontFamily: theme.typography.semibold,
+    fontSize: 9,
+    color: theme.colors.textMuted,
+    letterSpacing: 0.5,
+  },
   exerciseBody: {
     padding: 16,
-    paddingTop: 0,
+    paddingTop: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: theme.colors.border,
   },
@@ -453,30 +574,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   activeSetContainer: {
-    marginTop: 16,
-  },
-  ghostRow: {
-    paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: theme.colors.border,
-    alignItems: 'center',
-  },
-  ghostText: {
-    fontFamily: theme.typography.sans,
-    color: theme.colors.textMuted,
-    fontSize: 13,
-    fontStyle: 'italic',
-  },
-  rmBadge: {
-    backgroundColor: theme.colors.accentCyanFade,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: theme.borderRadius.sm,
-  },
-  rmBadgeText: {
-    fontFamily: theme.typography.sans,
-    color: theme.colors.accentCyan,
-    fontSize: 12,
+    marginTop: theme.spacing.md,
   },
   setRowActive: {
     flexDirection: 'row',
@@ -485,55 +583,72 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accentCyanFade,
     paddingHorizontal: 12,
     borderRadius: theme.borderRadius.sm,
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   setTextActive: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     color: theme.colors.accentCyan,
     fontSize: 16,
-    fontWeight: theme.typography.weight.semibold,
   },
-  pickersContainer: {
+  // Vertical stacking: each input row is full width
+  inputRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  pickerCol: {
-    flex: 1,
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.md,
   },
-  pickerLabel: {
+  inputLabel: {
     fontFamily: theme.typography.sans,
     color: theme.colors.textMuted,
-    fontSize: 13,
-    marginBottom: 8,
+    fontSize: 14,
+    minWidth: 80,
   },
-  stepper: {
+  inputControl: {
+    flex: 1,
+    maxWidth: 200,
+  },
+  rpeSection: {
+    marginBottom: theme.spacing.md,
+  },
+  rpeLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.sm,
-    padding: 4,
+    gap: 6,
+    marginBottom: theme.spacing.xs,
   },
-  stepperBtn: {
-    width: 40,
-    height: 40,
+  rpeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  rpeCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.surfaceSecondary,
-    borderRadius: 6,
   },
-  stepperBtnText: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: 'bold',
+  rpeCircleSelected: {
+    backgroundColor: theme.colors.accentCyan,
+    borderColor: theme.colors.accentCyan,
   },
-  stepperValue: {
-    fontFamily: 'Outfit_600SemiBold',
-    color: theme.colors.text,
-    fontSize: 18,
-    width: 60,
-    textAlign: 'center',
+  rpeCircleText: {
+    fontFamily: theme.typography.semibold,
+    fontSize: 14,
+    color: theme.colors.textMuted,
+  },
+  rpeCircleTextSelected: {
+    color: theme.colors.background,
+  },
+  rpeFeedback: {
+    fontFamily: theme.typography.sans,
+    fontSize: 13,
+    color: theme.colors.textMuted,
+    fontStyle: 'italic',
+    marginBottom: theme.spacing.md,
+    lineHeight: 18,
   },
   logBtn: {
     backgroundColor: theme.colors.accentCyan,
@@ -542,10 +657,11 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: theme.spacing.xs,
   },
   logBtnText: {
-    fontFamily: 'Outfit_600SemiBold',
-    color: '#000',
+    fontFamily: theme.typography.semibold,
+    color: theme.colors.background,
     fontSize: 16,
   },
   finishBtn: {
@@ -567,7 +683,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   finishBtnText: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     color: theme.colors.accentRed,
     fontSize: 16,
   },
@@ -584,7 +700,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   addExerciseText: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     color: theme.colors.text,
     fontSize: 16,
     marginLeft: 8,

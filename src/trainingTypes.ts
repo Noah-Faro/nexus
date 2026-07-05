@@ -19,8 +19,9 @@ export interface Exercise {
   id: string;
   name: string;            // "Bench Press", "Lateral Raise"
   muscleGroup: MuscleGroup;
+  primaryMuscle?: string;  // e.g. "Chest", "Biceps"
   equipment: EquipmentType;
-  incrementStep: number;   // 2.5 for barbell, 1 for dumbbell/cable
+  incrementStep: number;   // default fallback
   isCustom: boolean;       // true if created via Exercise Synthesizer
   weightUnit: 'kg' | 'lbs';// Per-exercise toggle, defaults to kg
 }
@@ -33,6 +34,7 @@ export interface LoggedSet {
   weight: number;          // in the exercise's configured unit
   weightUnit: 'kg' | 'lbs';
   reps: number;
+  rpe?: number;            // Rate of Perceived Exertion (1-10)
   timestamp: number;
   estimated1RM: number;    // Auto-calculated: weight * (1 + reps/30)
 }
@@ -54,4 +56,10 @@ export interface ExerciseDefaults {
   defaultWeight: number;
   defaultReps: number;
   weightUnit?: 'kg' | 'lbs';
+}
+
+export interface GymProfile {
+  id: string;
+  name: string;
+  equipmentIncrements: Partial<Record<EquipmentType, number>>;
 }

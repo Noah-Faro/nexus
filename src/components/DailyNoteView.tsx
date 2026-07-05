@@ -211,9 +211,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surfaceElevated,
   },
   badgeText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 13,
-    fontWeight: theme.typography.weight.semibold,
   },
   badgeTextSuccess: {
     color: theme.colors.accentGreen,
@@ -244,19 +243,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   metricValue: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 15,
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.medium,
   },
   metricHighlight: {
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.bold,
+    fontFamily: theme.typography.bold,
   },
   subHeader: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 17,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginBottom: theme.spacing.md,
   },
@@ -318,10 +315,9 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
   },
   logContent: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 15,
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.medium,
   },
   tagBadgeRow: {
     flexDirection: 'row',
@@ -329,9 +325,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   logTag: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 12,
-    fontWeight: theme.typography.weight.medium,
   },
   multiplierHint: {
     fontFamily: theme.typography.sans,
@@ -370,15 +365,13 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   bannerText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 13,
-    fontWeight: theme.typography.weight.semibold,
     flex: 1,
   },
   caffeineHint: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 12,
     color: '#ff9f0a',
-    fontWeight: theme.typography.weight.semibold,
   },
 });

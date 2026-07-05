@@ -403,33 +403,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 6,
   },
-  stepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: 8,
-    padding: 4,
-  },
-  stepperBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surfaceSecondary,
-    borderRadius: 6,
-  },
-  stepperBtnText: {
-    color: theme.colors.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  stepperValue: {
-    fontFamily: 'Outfit_600SemiBold',
-    color: theme.colors.text,
-    fontSize: 16,
-    width: 50,
-    textAlign: 'center',
-  },
+
   addExerciseBtn: {
     flexDirection: 'row',
     alignItems: 'center',

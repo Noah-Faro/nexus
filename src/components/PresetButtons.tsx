@@ -1,8 +1,9 @@
-import React, { useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Keyboard, Animated, PanResponder, Alert } from 'react-native';
+import React, { useRef, useEffect, useState } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Keyboard, Animated, PanResponder } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { LiquidType, LIQUID_CONFIGS, UserSettings, LiquidConfig } from '../types';
+import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 
 interface PresetButtonsProps {
   selectedType: string;
@@ -39,6 +40,27 @@ export default function PresetButtons({
   const startHeightRef = useRef(isExpanded ? MAX_HEIGHT : MIN_HEIGHT);
   const localExpandedRef = useRef(isExpanded);
   const isDraggingRef = useRef(false);
+
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: AppAlertButton[];
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: []
+  });
+
+  const triggerAlert = (title: string, message: string, buttons?: AppAlertButton[]) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }]
+    });
+  };
 
   useEffect(() => {
     animatedHeight.addListener(({ value }) => {
@@ -204,7 +226,7 @@ export default function PresetButtons({
               const handleLongPress = () => {
                 if (!isCustom) return;
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                Alert.alert(
+                triggerAlert(
                   'Delete Custom Formula',
                   `Remove "${config.label}" from your deck?`,
                   [
@@ -318,7 +340,7 @@ export default function PresetButtons({
                 >
                   <Text style={[
                     styles.sizeText,
-                    isStandard && { color: '#ffffff', fontWeight: 'bold' }
+                    isStandard && { color: '#ffffff', fontFamily: theme.typography.bold }
                   ]}>{size}ml</Text>
                   <Text style={[
                     styles.effectiveText,
@@ -330,6 +352,14 @@ export default function PresetButtons({
           })()}
         </View>
       </ScrollView>
+
+      <AppAlertModal 
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </Animated.View>
   );
 }
@@ -368,9 +398,8 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.xl,
   },
   sectionTitle: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 15,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginBottom: theme.spacing.sm,
     marginTop: 4,
@@ -414,10 +443,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   cardLabel: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 16,
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.medium,
   },
   sizeRow: {
     flexDirection: 'row',
@@ -434,10 +462,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sizeText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 15,
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.semibold,
   },
   effectiveText: {
     fontFamily: theme.typography.sans,
@@ -452,16 +479,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   addCustomPlus: {
+    fontFamily: theme.typography.bold,
     fontSize: 20,
     color: theme.colors.textMuted,
-    fontWeight: 'bold',
     lineHeight: 20,
   },
   cardLabelAddCustom: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 15,
     color: theme.colors.textMuted,
-    fontWeight: theme.typography.weight.semibold,
   },
   labelRow: {
     flexDirection: 'row',
@@ -470,9 +496,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   caffBadge: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 10,
-    fontWeight: 'bold',
     backgroundColor: 'rgba(255, 159, 10, 0.15)',
     color: '#ff9f0a',
     paddingHorizontal: 4,
@@ -513,9 +538,8 @@ const styles = StyleSheet.create({
     color: '#ff9f0a',
   },
   decafToggleText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 12,
     color: theme.colors.textMuted,
-    fontWeight: theme.typography.weight.semibold,
   },
 });

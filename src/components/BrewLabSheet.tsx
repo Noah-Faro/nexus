@@ -13,7 +13,8 @@ import {
   TouchableWithoutFeedback,
   ScrollView
 } from 'react-native';
-import { X, Sparkles, AlertTriangle } from 'lucide-react-native';
+import { X, Sparkles, AlertTriangle, Palette } from 'lucide-react-native';
+import ColorPicker from 'react-native-wheel-color-picker';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { LiquidConfig, LiquidType } from '../types';
@@ -39,9 +40,12 @@ const PRESET_COLORS = [
 export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetProps) {
   const [name, setName] = useState('');
   const [multiplier, setMultiplier] = useState(1.0);
-  const [standardPreset, setStandardPreset] = useState(250);
+  const [selectedPresets, setSelectedPresets] = useState<number[]>([250]);
+  const [caffeineIsFixed, setCaffeineIsFixed] = useState(false);
   const [caffeine, setCaffeine] = useState(0);
   const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [isSliding, setIsSliding] = useState(false);
   
   // Animated Sheet Position
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -52,7 +56,8 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
       // Reset State on Open
       setName('');
       setMultiplier(1.0);
-      setStandardPreset(250);
+      setSelectedPresets([250]);
+      setCaffeineIsFixed(false);
       setCaffeine(0);
       setSelectedColor(PRESET_COLORS[0]);
 
@@ -98,23 +103,18 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
 
     const tag = `#${name.toLowerCase().trim().replace(/\s+/g, '-')}`;
     
-    // Create base presets: [base/1.5, base, base*1.3, base*2] roughly or custom neat sizes
-    const base = standardPreset;
-    const presets = [
-      Math.round(base * 0.6 / 10) * 10,
-      base,
-      Math.round(base * 1.3 / 10) * 10,
-      Math.round(base * 2.0 / 10) * 10,
-    ];
+    const sortedPresets = [...selectedPresets].sort((a, b) => a - b);
+    const finalStandard = sortedPresets.length > 0 ? sortedPresets[0] : 250;
 
     const config: LiquidConfig = {
       tag,
       label: name.trim(),
       multiplier: Number(multiplier.toFixed(2)),
       color: selectedColor,
-      standardPreset,
-      presets,
-      caffeineMg: caffeine > 0 ? caffeine : undefined
+      standardPreset: finalStandard,
+      presets: sortedPresets.length > 0 ? sortedPresets : [250],
+      caffeineMg: caffeine > 0 ? caffeine : undefined,
+      caffeineIsFixed: caffeine > 0 ? caffeineIsFixed : undefined
     };
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -179,6 +179,7 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
       onMoveShouldSetPanResponder: () => true,
       onPanResponderTerminationRequest: () => false, // Prevents ScrollView vertical hijack
       onPanResponderGrant: (evt) => {
+        setIsSliding(true);
         const x = evt.nativeEvent.pageX - (24 + TRACK_PADDING);
         const pct = Math.max(0, Math.min(1, x / ACTIVE_TRACK_WIDTH));
         const val = getMultValFromPct(pct);
@@ -194,7 +195,9 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
           prevValMult.current = val;
         }
         setMultiplier(val);
-      }
+      },
+      onPanResponderRelease: () => setIsSliding(false),
+      onPanResponderTerminate: () => setIsSliding(false),
     })
   ).current;
 
@@ -205,6 +208,7 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
       onMoveShouldSetPanResponder: () => true,
       onPanResponderTerminationRequest: () => false, // Prevents ScrollView vertical hijack
       onPanResponderGrant: (evt) => {
+        setIsSliding(true);
         const x = evt.nativeEvent.pageX - (24 + TRACK_PADDING);
         const pct = Math.max(0, Math.min(1, x / ACTIVE_TRACK_WIDTH));
         const raw = pct * 300;
@@ -224,7 +228,9 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
           prevValCaff.current = clamped;
         }
         setCaffeine(clamped);
-      }
+      },
+      onPanResponderRelease: () => setIsSliding(false),
+      onPanResponderTerminate: () => setIsSliding(false),
     })
   ).current;
 
@@ -263,6 +269,7 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollBody}
             keyboardDismissMode="on-drag"
+            scrollEnabled={!isSliding}
           >
             {/* Input Name */}
             <Text style={styles.sectionTitle}>Drink Name</Text>
@@ -286,6 +293,7 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
                     key={color}
                     onPress={() => {
                       Haptics.selectionAsync();
+                      setShowColorPicker(false);
                       setSelectedColor(color);
                     }}
                     style={[
@@ -296,7 +304,40 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
                   />
                 );
               })}
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setShowColorPicker(!showColorPicker);
+                }}
+                style={[
+                  styles.colorCircle,
+                  { backgroundColor: '#2c2c2e', alignItems: 'center', justifyContent: 'center' },
+                  !PRESET_COLORS.includes(selectedColor) && styles.colorCircleSelected
+                ]}
+              >
+                <Palette size={18} color="#ffffff" />
+              </TouchableOpacity>
             </View>
+
+            {showColorPicker && (
+              <View 
+                style={styles.colorPickerContainer}
+                {...{
+                  onTouchStartCapture: () => setIsSliding(true),
+                  onTouchEndCapture: () => setIsSliding(false),
+                  onTouchCancelCapture: () => setIsSliding(false)
+                } as any}
+              >
+                <ColorPicker
+                  color={selectedColor}
+                  onColorChangeComplete={(c) => setSelectedColor(c)}
+                  thumbSize={24}
+                  sliderSize={24}
+                  noSnap={true}
+                  row={false}
+                />
+              </View>
+            )}
 
             {/* Hydration Multiplier Custom Slider */}
             <View style={styles.rowHeader}>
@@ -331,7 +372,7 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
               </Text>
             </View>
             <Text style={styles.helpText}>
-              Caffeine content per standard serving cup. (Standard cup of coffee contains ~80mg).
+              Caffeine content per standard serving cup. (Standard cup of coffee contains ~95mg).
             </Text>
 
             <View 
@@ -355,30 +396,67 @@ export default function BrewLabSheet({ visible, onClose, onSave }: BrewLabSheetP
               </View>
             )}
 
-            {/* Base Standard Volume Preset selection */}
-            <Text style={styles.sectionTitle}>Standard Serving Cup</Text>
-            <View style={styles.volumeRow}>
-              {[100, 250, 330, 500].map(vol => {
-                const isSelected = standardPreset === vol;
+            {caffeine > 0 && (
+              <View style={styles.caffModeRow}>
+                <TouchableOpacity 
+                  style={[styles.caffModeBtn, !caffeineIsFixed && { backgroundColor: selectedColor, borderColor: selectedColor }]}
+                  onPress={() => { Haptics.selectionAsync(); setCaffeineIsFixed(false); }}
+                >
+                  <Text style={[styles.caffModeText, !caffeineIsFixed && styles.caffModeTextActive]}>Scales with Volume</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.caffModeBtn, caffeineIsFixed && { backgroundColor: selectedColor, borderColor: selectedColor }]}
+                  onPress={() => { Haptics.selectionAsync(); setCaffeineIsFixed(true); }}
+                >
+                  <Text style={[styles.caffModeText, caffeineIsFixed && styles.caffModeTextActive]}>Fixed per Serving</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Multiple Volume Presets selection */}
+            <Text style={styles.sectionTitle}>Available Sizes (ml)</Text>
+            <View style={styles.volumesWrapRow}>
+              {[50, 100, 150, 250, 330, 500, 650, 1000].map(vol => {
+                const isSelected = selectedPresets.includes(vol);
                 return (
                   <TouchableOpacity
                     key={vol}
                     onPress={() => {
                       Haptics.selectionAsync();
-                      setStandardPreset(vol);
+                      if (isSelected && selectedPresets.length > 1) {
+                        setSelectedPresets(selectedPresets.filter(p => p !== vol));
+                      } else if (!isSelected) {
+                        setSelectedPresets([...selectedPresets, vol]);
+                      }
                     }}
                     style={[
-                      styles.volumeBtn,
+                      styles.volumePill,
                       isSelected && { backgroundColor: selectedColor, borderColor: selectedColor }
                     ]}
                   >
                     <Text style={[
                       styles.volumeText,
                       isSelected && styles.volumeTextSelected
-                    ]}>{vol}ml</Text>
+                    ]}>{vol}</Text>
                   </TouchableOpacity>
                 );
               })}
+            </View>
+
+            {/* Visual Preview Card */}
+            <Text style={styles.sectionTitle}>Preview</Text>
+            <View style={styles.previewCard}>
+              <View style={styles.previewHeader}>
+                <View style={[styles.previewColor, { backgroundColor: selectedColor }]} />
+                <Text style={styles.previewTitle}>{name.trim() || 'Custom Drink'}</Text>
+              </View>
+              <View style={styles.previewStats}>
+                <Text style={styles.previewStatText}>Hydration: {multiplier > 0 ? '+' : ''}{multiplier.toFixed(2)}x</Text>
+                {caffeine > 0 && (
+                  <Text style={styles.previewStatText}>Caffeine: {caffeine}mg ({caffeineIsFixed ? 'Fixed' : 'Scales'})</Text>
+                )}
+                <Text style={styles.previewStatText}>Sizes: {selectedPresets.length > 0 ? [...selectedPresets].sort((a,b)=>a-b).join(', ') : 'None'} ml</Text>
+              </View>
             </View>
 
             {/* Save Button */}
@@ -467,9 +545,8 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   sectionTitle: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 14,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginTop: 18,
     marginBottom: 8,
@@ -583,30 +660,87 @@ const styles = StyleSheet.create({
     color: theme.colors.accentRed,
     flex: 1,
   },
-  volumeRow: {
+  caffModeRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 20,
+    marginTop: 16,
+    marginBottom: 8,
   },
-  volumeBtn: {
+  caffModeBtn: {
     flex: 1,
     backgroundColor: '#1c1c1e',
     borderWidth: 1,
     borderColor: '#2c2c2e',
-    borderRadius: theme.borderRadius.md,
-    paddingVertical: 12,
+    borderRadius: 99,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  caffModeText: {
+    fontFamily: theme.typography.semibold,
+    fontSize: 13,
+    color: theme.colors.textMuted,
+  },
+  caffModeTextActive: {
+    color: '#ffffff',
+    fontFamily: theme.typography.bold,
+  },
+  volumesWrapRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  volumePill: {
+    backgroundColor: '#1c1c1e',
+    borderWidth: 1,
+    borderColor: '#2c2c2e',
+    borderRadius: 99,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   volumeText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 14,
     color: theme.colors.textMuted,
-    fontWeight: theme.typography.weight.medium,
   },
   volumeTextSelected: {
     color: '#ffffff',
-    fontWeight: 'bold',
+    fontFamily: theme.typography.bold,
+  },
+  previewCard: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: theme.borderRadius.lg,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#2c2c2e',
+    marginBottom: 20,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  previewColor: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  previewTitle: {
+    fontFamily: 'Outfit_600SemiBold',
+    fontSize: 18,
+    color: '#ffffff',
+  },
+  previewStats: {
+    gap: 6,
+  },
+  previewStatText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 14,
+    color: theme.colors.textMuted,
   },
   saveBtn: {
     borderRadius: theme.borderRadius.md,
@@ -618,5 +752,13 @@ const styles = StyleSheet.create({
   saveBtnText: {
     fontFamily: 'Outfit_600SemiBold',
     fontSize: 16,
+  },
+  colorPickerContainer: {
+    height: 300,
+    marginTop: 10,
+    marginBottom: 20,
+    backgroundColor: '#1c1c1e',
+    borderRadius: theme.borderRadius.md,
+    padding: 16,
   },
 });

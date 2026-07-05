@@ -28,8 +28,7 @@ export interface UserSettings {
   updatedAt?: string;                 // ISO timestamp of when settings were last saved
 }
 
-export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine';
-
+export type LiquidType = 'water' | 'coffee' | 'tea' | 'soda' | 'juice' | 'sports-drink' | 'beer' | 'wine' | 'milk';
 export interface LiquidConfig {
   tag: string;
   label: string;
@@ -38,6 +37,8 @@ export interface LiquidConfig {
   standardPreset: number;
   presets: number[];
   caffeineMg?: number;        // Optional caffeine content per standardPreset volume (mg)
+  caffeineLookup?: { ml: number; mg: number }[]; // Optional discrete lookup for caffeine amounts
+  caffeineIsFixed?: boolean;  // Optional flag: if true, caffeineMg does not scale with volume
 }
 
 export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
@@ -56,7 +57,8 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     color: '#855845', // Espresso Brown
     standardPreset: 250,
     presets: [30, 150, 250, 330], // Supports 30ml Espresso
-    caffeineMg: 80
+    caffeineMg: 95,
+    caffeineLookup: [{ml:30,mg:63}, {ml:60,mg:126}, {ml:150,mg:80}, {ml:250,mg:95}, {ml:330,mg:120}]
   },
   'tea': {
     tag: '#tea',
@@ -105,6 +107,14 @@ export const LIQUID_CONFIGS: Record<LiquidType, LiquidConfig> = {
     multiplier: -0.4, // Dehydrating
     color: '#ff375f', // iOS Pink/Rose
     standardPreset: 150,
+    presets: [150, 250, 330, 500]
+  },
+  'milk': {
+    tag: '#milk',
+    label: 'Milk',
+    multiplier: 0.8,
+    color: '#d1d1d6',
+    standardPreset: 250,
     presets: [150, 250, 330, 500]
   }
 };

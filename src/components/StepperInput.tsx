@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, TextInput } from 'react-native';
 import { theme } from '../theme';
 import * as Haptics from 'expo-haptics';
 
@@ -12,14 +12,37 @@ interface StepperInputProps {
 }
 
 export default function StepperInput({ value, onChange, min = 0, max = 9999, step = 1 }: StepperInputProps) {
+  const [textValue, setTextValue] = useState(value.toString());
+
+  useEffect(() => {
+    setTextValue(value.toString());
+  }, [value]);
+
   const handleDecrement = () => {
     Haptics.selectionAsync();
-    onChange(Math.max(min, value - step));
+    const newVal = Math.max(min, value - step);
+    onChange(Number(newVal.toFixed(1)));
   };
 
   const handleIncrement = () => {
     Haptics.selectionAsync();
-    onChange(Math.min(max, value + step));
+    const newVal = Math.min(max, value + step);
+    onChange(Number(newVal.toFixed(1)));
+  };
+
+  const handleBlur = () => {
+    let parsed = parseFloat(textValue.replace(',', '.'));
+    if (isNaN(parsed)) {
+      setTextValue(value.toString());
+      return;
+    }
+    // Snap to nearest increment
+    let snapped = Math.round(parsed / step) * step;
+    snapped = Math.max(min, Math.min(max, snapped));
+    snapped = Number(snapped.toFixed(2)); // avoid precision issues
+    
+    setTextValue(snapped.toString());
+    onChange(snapped);
   };
 
   return (
@@ -27,7 +50,14 @@ export default function StepperInput({ value, onChange, min = 0, max = 9999, ste
       <TouchableOpacity style={styles.stepperBtn} onPress={handleDecrement} activeOpacity={0.7}>
         <Text style={styles.stepperBtnText}>-</Text>
       </TouchableOpacity>
-      <Text style={styles.stepperValue}>{value}</Text>
+      <TextInput
+        style={styles.stepperValue}
+        value={textValue}
+        onChangeText={setTextValue}
+        onBlur={handleBlur}
+        keyboardType="decimal-pad"
+        selectTextOnFocus
+      />
       <TouchableOpacity style={styles.stepperBtn} onPress={handleIncrement} activeOpacity={0.7}>
         <Text style={styles.stepperBtnText}>+</Text>
       </TouchableOpacity>
@@ -39,10 +69,10 @@ const styles = StyleSheet.create({
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1c1c1e',
+    backgroundColor: theme.colors.surfaceCard,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2c2c2e',
+    borderColor: theme.colors.surfaceMuted,
     height: 38,
     overflow: 'hidden',
   },
@@ -51,17 +81,18 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2c2c2e',
+    backgroundColor: theme.colors.surfaceMuted,
   },
   stepperBtnText: {
-    fontFamily: 'Outfit_600SemiBold',
+    fontFamily: theme.typography.semibold,
     fontSize: 18,
-    color: '#ffffff',
+    color: theme.colors.text,
   },
   stepperValue: {
-    fontFamily: 'Outfit_600SemiBold',
+    flex: 1,
+    fontFamily: theme.typography.semibold,
     fontSize: 15,
-    color: '#ffffff',
+    color: theme.colors.text,
     minWidth: 40,
     textAlign: 'center',
     paddingHorizontal: 8,

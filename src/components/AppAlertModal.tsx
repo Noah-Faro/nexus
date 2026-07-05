@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View, Modal, TouchableOpacity, StyleProp, TextStyle } from 'react-native';
+import { StyleSheet, Text, View, Modal, Pressable, StyleProp, TextStyle } from 'react-native';
 import { theme } from '../theme';
 
 export interface AppAlertButton {
@@ -48,21 +48,21 @@ export default function AppAlertModal({ visible, title, message, buttons, onClos
               if (btn.style === 'cancel') btnStyle = styles.cancelBtnText;
 
               return (
-                <TouchableOpacity 
+                <Pressable 
                   key={index} 
-                  style={[
+                  style={({ pressed }) => [
                     styles.btn,
                     isRowLayout ? styles.rowBtn : styles.colBtn,
                     index > 0 && isRowLayout && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.colors.border },
-                    index > 0 && !isRowLayout && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }
+                    index > 0 && !isRowLayout && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
+                    pressed && { opacity: 0.7 }
                   ]} 
                   onPress={() => handlePress(btn)}
-                  activeOpacity={0.7}
                 >
                   <Text style={[styles.btnText, btnStyle]}>
                     {btn.text}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
   },
   container: {
     width: 270,
-    backgroundColor: 'rgba(30, 30, 30, 0.85)',
+    backgroundColor: theme.colors.surfaceElevated,
     borderRadius: 14,
     overflow: 'hidden',
   },
@@ -93,17 +93,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   titleText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 17,
-    fontWeight: theme.typography.weight.bold,
-    color: '#ffffff',
+    color: theme.colors.text,
     textAlign: 'center',
     marginBottom: 4,
   },
   messageText: {
     fontFamily: theme.typography.sans,
     fontSize: 13,
-    color: '#ebebf5',
+    color: theme.colors.textMuted,
     textAlign: 'center',
     lineHeight: 18,
   },
@@ -133,16 +132,15 @@ const styles = StyleSheet.create({
   btnText: {
     fontFamily: theme.typography.sans,
     fontSize: 17,
-    fontWeight: 'normal',
   },
   defaultBtnText: {
-    color: '#0A84FF',
-    fontWeight: '600',
+    color: theme.colors.accent,
+    fontFamily: theme.typography.semibold,
   },
   destructiveBtnText: {
-    color: '#FF453A',
+    color: theme.colors.accentRed,
   },
   cancelBtnText: {
-    color: '#0A84FF',
+    color: theme.colors.accent,
   },
 });
