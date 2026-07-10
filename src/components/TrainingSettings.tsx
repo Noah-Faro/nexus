@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
-import { Trash2, Search, ChevronRight, ChevronDown } from 'lucide-react-native';
+import { Trash2, Search, ChevronRight, ChevronDown, Plus } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { Exercise } from '../trainingTypes';
@@ -11,6 +11,7 @@ import StepperInput from './StepperInput';
 import SheetHeader from './SheetHeader';
 import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 import SegmentedControl from './SegmentedControl';
+import ExerciseSynthesizer from './ExerciseSynthesizer';
 import { loadGymProfiles, saveGymProfiles, getActiveGymId, setActiveGymId, defaultGymProfile } from '../gymStorage';
 import { GymProfile, EquipmentType } from '../trainingTypes';
 
@@ -20,7 +21,7 @@ interface TrainingSettingsProps {
   onCustomExercisesChange: (updated: Exercise[]) => void;
 }
 
-type CategoryType = 'all' | 'push' | 'pull' | 'legs' | 'custom';
+type CategoryType = 'all' | 'push' | 'pull' | 'legs' | 'core' | 'cardio';
 
 export default function TrainingSettings({ onClose, customExercises, onCustomExercisesChange }: TrainingSettingsProps) {
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -28,6 +29,7 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<CategoryType>('all');
   const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null);
+  const [synthVisible, setSynthVisible] = useState(false);
 
   const [gymProfiles, setGymProfiles] = useState<GymProfile[]>([defaultGymProfile]);
   const [activeGymId, setActiveGymIdState] = useState<string>('default');
@@ -71,7 +73,9 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
 
   const updateDefault = (id: string, field: 'defaultWeight' | 'defaultReps' | 'weightUnit', value: any) => {
     setDefaults(prev => {
-      const current = prev[id] || { defaultWeight: 20, defaultReps: 10, weightUnit: 'kg' };
+      const ex = exercises.find(e => e.id === id);
+      const fallbackWeight = ex?.equipment === 'bodyweight' ? 0 : 20;
+      const current = prev[id] || { defaultWeight: fallbackWeight, defaultReps: 10, weightUnit: 'kg' };
       return {
         ...prev,
         [id]: { ...current, [field]: value }
@@ -111,6 +115,17 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
     );
   };
 
+  const handleSaveCustom = async (newEx: Exercise) => {
+    const updated = [...(customExercises || []), newEx];
+    await saveCustomExercises(updated);
+    if (onCustomExercisesChange) {
+      onCustomExercisesChange(updated);
+    }
+    setExercises([...Object.values(EXERCISE_LIBRARY), ...updated]);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setSynthVisible(false);
+  };
+
   // Dynamic search and tab category filters
   const filteredExercises = exercises.filter(ex => {
     const matchesSearch = ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -119,29 +134,30 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
     if (!matchesSearch) return false;
 
     if (activeCategory === 'all') return true;
-    if (activeCategory === 'custom') return ex.isCustom;
     return ex.muscleGroup === activeCategory;
   });
 
   const groupedExercises: Record<string, Exercise[]> = {};
   filteredExercises.forEach(ex => {
-    const key = ex.isCustom ? 'custom' : ex.muscleGroup;
+    const key = ex.muscleGroup;
     if (!groupedExercises[key]) {
       groupedExercises[key] = [];
     }
     groupedExercises[key].push(ex);
   });
 
-  const categoryOrder = ['push', 'pull', 'legs', 'custom'];
+  const categoryOrder = ['push', 'pull', 'legs', 'core', 'cardio'];
   const categoryLabels: Record<string, string> = {
     push: 'Push Exercises',
     pull: 'Pull Exercises',
     legs: 'Legs Exercises',
-    custom: 'Custom Exercises',
+    core: 'Core Exercises',
+    cardio: 'Cardio Exercises',
   };
 
   const renderExerciseSetting = (ex: Exercise) => {
-    const exDefaults = defaults[ex.id] || { defaultWeight: 20, defaultReps: 10, weightUnit: ex.weightUnit || 'kg' };
+    const fallbackWeight = ex.equipment === 'bodyweight' ? 0 : 20;
+    const exDefaults = defaults[ex.id] || { defaultWeight: fallbackWeight, defaultReps: 10, weightUnit: ex.weightUnit || 'kg' };
     const currentUnit = exDefaults.weightUnit || ex.weightUnit || 'kg';
     const isExpanded = expandedExerciseId === ex.id;
 
@@ -172,9 +188,18 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
                 </TouchableOpacity>
               )}
             </View>
-            <Text style={styles.exerciseSub}>
-              {ex.muscleGroup.toUpperCase()} • {ex.equipment.toUpperCase()}
-            </Text>
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+              <View style={styles.groupBadge}>
+                <Text style={styles.groupBadgeText}>
+                  {ex.primaryMuscle?.toUpperCase() || ex.muscleGroup.toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.groupBadge}>
+                <Text style={styles.groupBadgeText}>
+                  {ex.equipment.toUpperCase()}
+                </Text>
+              </View>
+            </View>
           </View>
           <View style={styles.chevronContainer}>
             {isExpanded ? (
@@ -187,40 +212,50 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
 
         {isExpanded && (
           <View style={styles.expandedPanel}>
-            <View style={styles.controlItem}>
-              <Text style={styles.controlLabel}>Weight ({currentUnit})</Text>
-              <StepperInput
-                value={exDefaults.defaultWeight}
-                onChange={(val) => updateDefault(ex.id, 'defaultWeight', Number(val.toFixed(1)))}
-                min={0}
-                step={ex.incrementStep || 2.5}
-              />
-            </View>
+            {ex.trackingType !== 'time' && (
+              <View style={styles.controlItem}>
+                <Text style={styles.controlLabel}>
+                  {ex.trackingType === 'time_distance' ? `Distance (${currentUnit === 'kg' ? 'km' : 'mi'})` : `Weight (${currentUnit})`}
+                </Text>
+                <StepperInput
+                  value={exDefaults.defaultWeight}
+                  onChange={(val) => updateDefault(ex.id, 'defaultWeight', Number(val.toFixed(1)))}
+                  min={0}
+                  step={ex.trackingType === 'time_distance' ? 0.1 : (ex.incrementStep || 2.5)}
+                />
+              </View>
+            )}
 
             <View style={styles.controlItem}>
-              <Text style={styles.controlLabel}>Reps</Text>
+              <Text style={styles.controlLabel}>
+                {ex.trackingType === 'time' ? 'Time (sec)' : (ex.trackingType === 'time_distance' ? 'Time (min)' : 'Reps')}
+              </Text>
               <StepperInput
                 value={exDefaults.defaultReps}
                 onChange={(val) => updateDefault(ex.id, 'defaultReps', val)}
                 min={1}
-                step={1}
+                step={ex.trackingType === 'time' ? 5 : 1}
               />
             </View>
 
-            <View style={styles.controlItem}>
-              <Text style={styles.controlLabel}>Unit</Text>
-              <TouchableOpacity
-                style={[styles.unitToggle, currentUnit === 'lbs' && styles.unitToggleLbs]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  const nextUnit = currentUnit === 'kg' ? 'lbs' : 'kg';
-                  updateDefault(ex.id, 'weightUnit', nextUnit);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.unitToggleText}>{currentUnit.toUpperCase()}</Text>
-              </TouchableOpacity>
-            </View>
+            {ex.trackingType !== 'time' && (
+              <View style={styles.controlItem}>
+                <Text style={styles.controlLabel}>{ex.trackingType === 'time_distance' ? 'Dist. Unit' : 'Unit'}</Text>
+                <TouchableOpacity
+                  style={[styles.unitToggle, currentUnit === 'lbs' && styles.unitToggleLbs]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    const nextUnit = currentUnit === 'kg' ? 'lbs' : 'kg';
+                    updateDefault(ex.id, 'weightUnit', nextUnit);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.unitToggleText}>
+                    {ex.trackingType === 'time_distance' ? (currentUnit === 'kg' ? 'KM' : 'MILES') : currentUnit.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -234,6 +269,14 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
           <SheetHeader
             title="Training Settings"
             onClose={onClose}
+            rightAction={
+              <TouchableOpacity onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setSynthVisible(true);
+              }} style={{ padding: theme.spacing.xs }}>
+                <Plus size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            }
           />
         </View>
 
@@ -276,10 +319,10 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
 
         <View style={styles.tabsContainer}>
           <SegmentedControl
-            values={['all', 'push', 'pull', 'legs', 'custom'] as const}
+            values={['all', 'push', 'pull', 'legs', 'core', 'cardio'] as const}
             selectedValue={activeCategory}
             onChange={(val) => setActiveCategory(val)}
-            labels={['All', 'Push', 'Pull', 'Legs', 'Custom']}
+            labels={['All', 'Push', 'Pull', 'Legs', 'Core', 'Cardio']}
           />
         </View>
 
@@ -324,6 +367,14 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
         buttons={alertConfig.buttons}
         onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
       />
+
+      {synthVisible && (
+        <ExerciseSynthesizer
+          visible={synthVisible}
+          onClose={() => setSynthVisible(false)}
+          onSave={handleSaveCustom}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -488,11 +539,19 @@ const styles = StyleSheet.create({
   trashBtn: {
     padding: 2,
   },
-  exerciseSub: {
-    fontFamily: theme.typography.sans,
-    fontSize: 13,
+  groupBadge: {
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  groupBadgeText: {
+    fontFamily: theme.typography.semibold,
+    fontSize: 9,
     color: theme.colors.textMuted,
-    marginTop: 2,
+    letterSpacing: 0.5,
   },
   chevronContainer: {
     paddingLeft: 8,
@@ -503,7 +562,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 16,
+    paddingVertical: 20,
+    gap: 16,
     paddingHorizontal: 16,
     backgroundColor: theme.colors.surface,
     borderTopWidth: 1,

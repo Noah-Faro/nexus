@@ -36,4 +36,16 @@ export const EXERCISE_LIBRARY: Record<string, Exercise> = {
   'leg-curl': { id: 'leg-curl', name: 'Leg Curl', muscleGroup: 'legs', primaryMuscle: 'Hamstrings', equipment: 'machine', incrementStep: 2.5, isCustom: false, weightUnit: 'kg' },
   'calf-raise': { id: 'calf-raise', name: 'Calf Raise', muscleGroup: 'legs', primaryMuscle: 'Calves', equipment: 'machine', incrementStep: 2.5, isCustom: false, weightUnit: 'kg' },
   'bulgarian-split-squat': { id: 'bulgarian-split-squat', name: 'Bulgarian Split Squat', muscleGroup: 'legs', primaryMuscle: 'Quads', equipment: 'dumbbell', incrementStep: 1, isCustom: false, weightUnit: 'kg' },
+
+  // CORE
+  'crunch': { id: 'crunch', name: 'Crunch', muscleGroup: 'core', primaryMuscle: 'Abs', equipment: 'bodyweight', incrementStep: 1, isCustom: false, weightUnit: 'kg', trackingType: 'weight_reps' },
+  'plank': { id: 'plank', name: 'Plank', muscleGroup: 'core', primaryMuscle: 'Abs', equipment: 'bodyweight', incrementStep: 1, isCustom: false, weightUnit: 'kg', trackingType: 'time' },
+  'leg-raise': { id: 'leg-raise', name: 'Leg Raise', muscleGroup: 'core', primaryMuscle: 'Abs', equipment: 'bodyweight', incrementStep: 1, isCustom: false, weightUnit: 'kg', trackingType: 'weight_reps' },
+  'cable-crunch': { id: 'cable-crunch', name: 'Cable Crunch', muscleGroup: 'core', primaryMuscle: 'Abs', equipment: 'cable', incrementStep: 1, isCustom: false, weightUnit: 'kg', trackingType: 'weight_reps' },
+
+  // CARDIO
+  'treadmill-run': { id: 'treadmill-run', name: 'Treadmill Run', muscleGroup: 'cardio', primaryMuscle: 'Cardio', equipment: 'machine', incrementStep: 0.1, isCustom: false, weightUnit: 'kg', trackingType: 'time_distance' },
+  'cycling': { id: 'cycling', name: 'Cycling', muscleGroup: 'cardio', primaryMuscle: 'Cardio', equipment: 'machine', incrementStep: 0.1, isCustom: false, weightUnit: 'kg', trackingType: 'time_distance' },
+  'rowing': { id: 'rowing', name: 'Rowing', muscleGroup: 'cardio', primaryMuscle: 'Cardio', equipment: 'machine', incrementStep: 100, isCustom: false, weightUnit: 'kg', trackingType: 'time_distance' },
+  'stairmaster': { id: 'stairmaster', name: 'Stairmaster', muscleGroup: 'cardio', primaryMuscle: 'Cardio', equipment: 'machine', incrementStep: 1, isCustom: false, weightUnit: 'kg', trackingType: 'time' },
 };

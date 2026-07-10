@@ -59,7 +59,7 @@ export function calculateWeightFromComposite(c1RM: number, targetReps: number): 
 /** A completed session's sets for a single exercise, most-recent first. */
 export interface CoachSession {
   dateKey: string;
-  sets: { weightKg: number; reps: number; rpe?: number }[];
+  sets: { weightKg: number; reps: number; rpe?: number; isWarmup?: boolean }[];
   /** 0-based exercise position within its session. Optional for backwards compat. */
   position?: number;
 }
@@ -250,6 +250,7 @@ export function buildCoachHistory(
         weightKg: s.weight,
         reps: s.reps,
         rpe: s.rpe,
+        isWarmup: s.isWarmup,
       })),
       position,
     });
@@ -315,6 +316,7 @@ export function suggestNextTarget(
 
   // Filter session.sets to only look at Working Sets
   const workingSets = last.sets.filter((s, i) => {
+    if (s.isWarmup) return false;
     if (arch === 'STRAIGHT') return true;
     if (arch === 'RAMP_UP') return s.weightKg === lastWeight;
     if (arch === 'TOP_SET_BACK_OFF') return s.weightKg === lastWeight;
@@ -366,7 +368,7 @@ export function suggestNextTarget(
 
   if (topSetMastered && backOffsMaintained) {
     let newWeight = round1(lastWeight + incrementKg);
-    let reasoning = `Last time: ${describeSession(last)} — top set mastered and back-offs maintained. Time to go up.`;
+    let reasoning = `Last time: ${describeSession(last)} — top set mastered and back-offs maintained. Go up to ${weightForTarget(newWeight)} for ${range.bottom} reps.`;
 
     if (firstSet.reps >= range.top + 3) {
       const c1RM = calculateComposite1RM(firstSet.weightKg, firstSet.reps);
@@ -380,7 +382,7 @@ export function suggestNextTarget(
       if (newWeight <= lastWeight && incrementKg > 0) {
         newWeight = round1(lastWeight + incrementKg);
       } else if (newWeight > lastWeight + incrementKg) {
-        reasoning = `Last time: ${describeSession(last)} — significant overshoot! Jumping weight to match new estimated 1RM.`;
+        reasoning = `Last time: ${describeSession(last)} — Jump to ${weightForTarget(newWeight)} for ${range.bottom} reps to match your new estimated 1RM.`;
       }
     }
 
@@ -426,19 +428,16 @@ export function suggestNextTarget(
     }
 
     if (belowLast && belowPrev && !softenedLast) {
-      const deloadWeight = round1(lastWeight * (1 - DELOAD_PERCENT / 100));
-      const deloadNote =
-        lastWeight === 0
-          ? ''
-          : ` Deload option: -${DELOAD_PERCENT}% to ${weightForTarget(deloadWeight)}.`;
+      const deloadWeight = lastWeight === 0 ? 0 : round1(lastWeight * (1 - DELOAD_PERCENT / 100));
       return {
         architecture: arch,
-        targets: buildTargets(undefined, range.bottom),
-        suggestion: { weightKg: lastWeight, targetReps: range.bottom },
+        targets: buildTargets(deloadWeight, range.bottom),
+        suggestion: { weightKg: deloadWeight, targetReps: range.bottom },
         reasoning:
-          `Last time: ${describeSession(last)} — dropped below ${range.bottom} reps ` +
-          `two sessions running. Hold weight and aim for ` +
-          `${range.bottom} solid reps.${deloadNote}`,
+          `Last time: ${describeSession(last)} — missed target reps twice. ` +
+          (lastWeight === 0
+            ? `Hold bodyweight and aim for ${range.bottom} solid reps.`
+            : `Deload to ${weightForTarget(deloadWeight)} and aim for ${range.bottom} solid reps.`),
         ...(coachNote ? { coachNote } : {})
       };
     }
@@ -465,7 +464,7 @@ export function suggestNextTarget(
     suggestion: { weightKg: lastWeight, targetReps },
     reasoning:
       `Last time: ${describeSession(last)}. ` +
-      `Keep weight, aim for ${targetReps} reps on working sets this time.`,
+      `Keep ${weightForTarget(lastWeight)} and push for ${targetReps} reps on your working sets.`,
     ...(coachNote ? { coachNote } : {})
   };
 }

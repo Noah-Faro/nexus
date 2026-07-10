@@ -119,7 +119,9 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
                     />
                     {exSets.map(s => (
                       <View key={s.id} style={styles.setRow}>
-                        <Text style={styles.setText}>Set {s.setNumber}</Text>
+                        <Text style={[styles.setText, s.isWarmup && { color: '#FF9F0A' }]}>
+                          {s.isWarmup ? 'Warmup' : `Set ${s.setNumber}`}
+                        </Text>
                         <Text style={styles.setText}>{s.weight}{s.weightUnit || unit} × {s.reps}</Text>
                       </View>
                     ))}

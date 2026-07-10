@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Check, ChevronDown, ChevronUp, Trash2, Plus, Info } from 'lucide-react-native';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -61,6 +61,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
   const [currentWeight, setCurrentWeight] = useState(20);
   const [currentReps, setCurrentReps] = useState(8);
   const [currentRpe, setCurrentRpe] = useState(8);
+  const [isWarmup, setIsWarmup] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [gymProfile, setGymProfile] = useState<any>(null);
 
@@ -93,7 +94,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
           setCurrentRpe(8);
         } else {
           // Fallback generic defaults
-          setCurrentWeight(20);
+          setCurrentWeight(activeExDef.equipment === 'bodyweight' ? 0 : 20);
           setCurrentReps(10);
           setCurrentRpe(8);
         }
@@ -136,11 +137,12 @@ export default function TrainingSessionView({ session, templateExercises, custom
       id: generateId(),
       exerciseId: activeExDef.id,
       exerciseName: activeExDef.name,
-      setNumber: sets.filter(s => s.exerciseId === activeExDef.id).length + 1,
+      setNumber: isWarmup ? 0 : sets.filter(s => s.exerciseId === activeExDef.id && !s.isWarmup).length + 1,
       weight: currentWeight,
       weightUnit: activeUnit,
       reps: currentReps,
-      rpe: currentRpe,
+      rpe: isWarmup ? undefined : currentRpe,
+      isWarmup,
       timestamp: Date.now(),
       estimated1RM: Math.round(currentWeight * (1 + currentReps / 30))
     };
@@ -148,7 +150,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
     const newSets = [...sets, newSet];
     setSets(newSets);
 
-    const setsForThisEx = newSets.filter(s => s.exerciseId === activeExDef.id);
+    const setsForThisEx = newSets.filter(s => s.exerciseId === activeExDef.id && !s.isWarmup);
     if (setsForThisEx.length === activeTemplateEx.targetSets) {
       setTimeout(() => {
         if (activeExerciseIndex < sessionExercises.length - 1) {
@@ -171,6 +173,9 @@ export default function TrainingSessionView({ session, templateExercises, custom
       let counter = 1;
       return updatedSets.map(s => {
         if (s.exerciseId === exId) {
+          if (s.isWarmup) {
+            return { ...s, setNumber: 0 };
+          }
           return { ...s, setNumber: counter++ };
         }
         return s;
@@ -269,7 +274,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
                   </View>
                 )}
               </View>
-              <Text style={styles.exerciseSub}>{completedSets.length} / {Math.max(completedSets.length, tEx.targetSets)} sets completed</Text>
+              <Text style={styles.exerciseSub}>{completedSets.filter(s => !s.isWarmup).length} / {Math.max(completedSets.filter(s => !s.isWarmup).length, tEx.targetSets)} sets completed</Text>
             </View>
           </View>
           <View style={{flexDirection: 'row', alignItems: 'center'}}>
@@ -313,8 +318,17 @@ export default function TrainingSessionView({ session, templateExercises, custom
                 )}
               >
                 <View style={styles.setRow}>
-                  <Text style={styles.setText}>Set {s.setNumber}</Text>
-                  <Text style={styles.setText}>{s.weight}{s.weightUnit} × {s.reps}</Text>
+                  <Text style={[styles.setText, s.isWarmup && { color: '#FF9F0A' }]}>
+                    {s.isWarmup ? 'Warmup' : `Set ${s.setNumber}`}
+                  </Text>
+                  <Text style={styles.setText}>
+                    {exDef.trackingType === 'time' 
+                      ? `${s.reps} sec`
+                      : exDef.trackingType === 'time_distance'
+                        ? `${s.weight}${s.weightUnit === 'kg' ? 'km' : 'mi'} in ${s.reps} min`
+                        : `${s.weight}${s.weightUnit} × ${s.reps}`
+                    }
+                  </Text>
                   <Check size={16} color={theme.colors.accent} />
                 </View>
               </Swipeable>
@@ -322,70 +336,102 @@ export default function TrainingSessionView({ session, templateExercises, custom
 
             {/* Active Set Input */}
             <View style={styles.activeSetContainer}>
-              <View style={styles.setRowActive}>
-                <Text style={styles.setTextActive}>Set {completedSets.length + 1}</Text>
-                <Text style={styles.setTextActive}>{currentWeight}{exUnit} × {currentReps}</Text>
+              <View style={[styles.setRowActive, isWarmup && { backgroundColor: 'rgba(255, 159, 10, 0.15)' }]}>
+                <Text style={[styles.setTextActive, isWarmup && { color: '#FF9F0A' }]}>
+                  {isWarmup ? 'Warmup' : `Set ${completedSets.filter(s => !s.isWarmup).length + 1}`}
+                </Text>
+                <Text style={[styles.setTextActive, isWarmup && { color: '#FF9F0A' }]}>
+                  {exDef.trackingType === 'time' 
+                      ? `${currentReps} sec`
+                      : exDef.trackingType === 'time_distance'
+                        ? `${currentWeight}${exUnit === 'kg' ? 'km' : 'mi'} in ${currentReps} min`
+                        : `${currentWeight}${exUnit} × ${currentReps}`
+                  }
+                </Text>
               </View>
 
               {/* Weight stepper — full width */}
-              <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Weight ({exUnit})</Text>
-                <View style={styles.inputControl}>
-                  <StepperInput
-                    value={currentWeight}
-                    onChange={(val) => setCurrentWeight(Number(val.toFixed(1)))}
-                    min={0}
-                    step={incrementStep}
-                  />
+              {exDef.trackingType !== 'time' && (
+                <View style={styles.inputRow}>
+                  <Text style={styles.inputLabel}>
+                    {exDef.trackingType === 'time_distance' ? `Distance (${exUnit === 'kg' ? 'km' : 'mi'})` : `Weight (${exUnit})`}
+                  </Text>
+                  <View style={styles.inputControl}>
+                    <StepperInput
+                      value={currentWeight}
+                      onChange={(val) => setCurrentWeight(Number(val.toFixed(1)))}
+                      min={0}
+                      step={exDef.trackingType === 'time_distance' ? 0.1 : incrementStep}
+                    />
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Reps stepper — full width */}
               <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>Reps</Text>
+                <Text style={styles.inputLabel}>
+                  {exDef.trackingType === 'time' ? 'Time (sec)' : (exDef.trackingType === 'time_distance' ? 'Time (min)' : 'Reps')}
+                </Text>
                 <View style={styles.inputControl}>
                   <StepperInput
                     value={currentReps}
                     onChange={setCurrentReps}
                     min={1}
-                    step={1}
+                    step={exDef.trackingType === 'time' ? 5 : 1}
                   />
                 </View>
               </View>
 
               {/* RPE — row of numbered circle buttons (5-10) */}
-              <View style={styles.rpeSection}>
-                <View style={styles.rpeLabelRow}>
-                  <Text style={styles.inputLabel}>RPE</Text>
-                  <TouchableOpacity onPress={showRpeInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Info size={14} color={theme.colors.textMuted} />
-                  </TouchableOpacity>
+              {!isWarmup && exDef.trackingType !== 'time' && exDef.trackingType !== 'time_distance' && (
+                <View style={styles.rpeSection}>
+                  <View style={styles.rpeLabelRow}>
+                    <Text style={styles.inputLabel}>RPE</Text>
+                    <TouchableOpacity onPress={showRpeInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Info size={14} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.rpeRow}>
+                    {RPE_VALUES.map((val) => {
+                      const isSelected = currentRpe === val;
+                      return (
+                        <TouchableOpacity
+                          key={val}
+                          style={[styles.rpeCircle, isSelected && styles.rpeCircleSelected]}
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            setCurrentRpe(val);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.rpeCircleText, isSelected && styles.rpeCircleTextSelected]}>
+                            {val}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
-                <View style={styles.rpeRow}>
-                  {RPE_VALUES.map((val) => {
-                    const isSelected = currentRpe === val;
-                    return (
-                      <TouchableOpacity
-                        key={val}
-                        style={[styles.rpeCircle, isSelected && styles.rpeCircleSelected]}
-                        onPress={() => {
-                          Haptics.selectionAsync();
-                          setCurrentRpe(val);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.rpeCircleText, isSelected && styles.rpeCircleTextSelected]}>
-                          {val}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+              )}
+
+              {/* Warmup Toggle */}
+              <View style={[styles.inputRow, { marginTop: 8 }]}>
+                <Text style={styles.inputLabel}>Warmup Set</Text>
+                <View style={styles.inputControl}>
+                  <Switch
+                    value={isWarmup}
+                    onValueChange={(val) => {
+                      Haptics.selectionAsync();
+                      setIsWarmup(val);
+                    }}
+                    trackColor={{ false: theme.colors.surfaceMuted, true: '#FF9F0A' }}
+                  />
                 </View>
               </View>
 
               {/* Intra-Set RPE Feedback Snippet */}
               {(() => {
-                if (completedSets.length === 0) return null;
+                if (completedSets.length === 0 || isWarmup) return null;
                 const lastSet = completedSets[completedSets.length - 1];
                 if (!lastSet.rpe) return null;
                 

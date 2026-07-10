@@ -24,6 +24,7 @@ export interface Exercise {
   incrementStep: number;   // default fallback
   isCustom: boolean;       // true if created via Exercise Synthesizer
   weightUnit: 'kg' | 'lbs';// Per-exercise toggle, defaults to kg
+  trackingType?: 'weight_reps' | 'time' | 'time_distance';
 }
 
 export interface LoggedSet {
@@ -35,6 +36,7 @@ export interface LoggedSet {
   weightUnit: 'kg' | 'lbs';
   reps: number;
   rpe?: number;            // Rate of Perceived Exertion (1-10)
+  isWarmup?: boolean;      // NEW FIELD
   timestamp: number;
   estimated1RM: number;    // Auto-calculated: weight * (1 + reps/30)
 }

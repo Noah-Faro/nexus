@@ -18,11 +18,14 @@ interface ExercisePickerModalProps {
   onCustomExercisesChange?: (updated: Exercise[]) => void;
 }
 
-type CategoryType = 'all' | 'push' | 'pull' | 'legs' | 'custom';
+type CategoryType = 'all' | 'push' | 'pull' | 'legs' | 'core' | 'cardio';
+type EquipmentFilterType = 'all' | 'barbell' | 'dumbbell' | 'machine' | 'cable' | 'bodyweight';
 
 export default function ExercisePickerModal({ visible, onClose, onSelect, customExercises, onCustomExercisesChange }: ExercisePickerModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<CategoryType>('all');
+  const [activeEquipment, setActiveEquipment] = useState<EquipmentFilterType>('all');
+  const [activePrimary, setActivePrimary] = useState<string>('all');
   const [synthVisible, setSynthVisible] = useState(false);
 
   const handleSaveCustom = async (newEx: Exercise) => {
@@ -49,18 +52,25 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
                           e.equipment.toLowerCase().includes(searchQuery.toLowerCase());
     if (!matchesSearch) return false;
 
-    if (activeCategory === 'all') return true;
-    if (activeCategory === 'custom') return e.isCustom;
-    return e.muscleGroup === activeCategory;
+    if (activeCategory !== 'all' && e.muscleGroup !== activeCategory) return false;
+    if (activeEquipment !== 'all' && e.equipment !== activeEquipment) return false;
+    if (activePrimary !== 'all' && e.primaryMuscle !== activePrimary) return false;
+
+    return true;
   });
 
   // Section grouping for 'All' view to make it highly structured
   const sections = [
-    { title: 'PUSH', data: filtered.filter(e => e.muscleGroup === 'push' && !e.isCustom) },
-    { title: 'PULL', data: filtered.filter(e => e.muscleGroup === 'pull' && !e.isCustom) },
-    { title: 'LEGS', data: filtered.filter(e => e.muscleGroup === 'legs' && !e.isCustom) },
-    { title: 'CUSTOM EXERCISES', data: filtered.filter(e => e.isCustom) }
+    { title: 'PUSH', data: filtered.filter(e => e.muscleGroup === 'push') },
+    { title: 'PULL', data: filtered.filter(e => e.muscleGroup === 'pull') },
+    { title: 'LEGS', data: filtered.filter(e => e.muscleGroup === 'legs') },
+    { title: 'CORE', data: filtered.filter(e => e.muscleGroup === 'core') },
+    { title: 'CARDIO', data: filtered.filter(e => e.muscleGroup === 'cardio') }
   ].filter(s => s.data.length > 0);
+
+  // Derive available primary muscles from the currently filtered list
+  const availablePrimaryMuscles = Array.from(new Set(allExercises.map(e => e.primaryMuscle).filter(Boolean))) as string[];
+
 
   const getEquipmentColor = (equipment: string) => {
     switch (equipment) {
@@ -78,6 +88,8 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
     onSelect(exerciseId);
     setSearchQuery('');
     setActiveCategory('all');
+    setActiveEquipment('all');
+    setActivePrimary('all');
     onClose();
   };
 
@@ -159,11 +171,54 @@ export default function ExercisePickerModal({ visible, onClose, onSelect, custom
 
         <View style={styles.tabsContainer}>
           <SegmentedControl
-            values={['all', 'push', 'pull', 'legs', 'custom'] as const}
+            values={['all', 'push', 'pull', 'legs', 'core', 'cardio'] as const}
             selectedValue={activeCategory}
-            onChange={(val) => setActiveCategory(val)}
-            labels={['All', 'Push', 'Pull', 'Legs', 'Custom']}
+            onChange={(val) => {
+              setActiveCategory(val);
+              setActivePrimary('all'); // Reset primary muscle filter when category changes
+            }}
+            labels={['All', 'Push', 'Pull', 'Legs', 'Core', 'Cardio']}
           />
+        </View>
+
+        <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <TouchableOpacity 
+              style={[styles.filterChip, activeEquipment === 'all' && styles.filterChipActive]}
+              onPress={() => setActiveEquipment('all')}
+            >
+              <Text style={[styles.filterChipText, activeEquipment === 'all' && styles.filterChipTextActive]}>All Equip.</Text>
+            </TouchableOpacity>
+            {['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight'].map(eq => (
+              <TouchableOpacity 
+                key={eq}
+                style={[styles.filterChip, activeEquipment === eq && styles.filterChipActive]}
+                onPress={() => setActiveEquipment(eq as EquipmentFilterType)}
+              >
+                <Text style={[styles.filterChipText, activeEquipment === eq && styles.filterChipTextActive]}>
+                  {eq.charAt(0).toUpperCase() + eq.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 8 }}>
+            <TouchableOpacity 
+              style={[styles.filterChip, activePrimary === 'all' && styles.filterChipActive]}
+              onPress={() => setActivePrimary('all')}
+            >
+              <Text style={[styles.filterChipText, activePrimary === 'all' && styles.filterChipTextActive]}>All Muscles</Text>
+            </TouchableOpacity>
+            {availablePrimaryMuscles.map(pm => (
+              <TouchableOpacity 
+                key={pm}
+                style={[styles.filterChip, activePrimary === pm && styles.filterChipActive]}
+                onPress={() => setActivePrimary(pm)}
+              >
+                <Text style={[styles.filterChipText, activePrimary === pm && styles.filterChipTextActive]}>{pm}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
 
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
@@ -338,5 +393,26 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  filterChipActive: {
+    backgroundColor: theme.colors.text,
+    borderColor: theme.colors.text,
+  },
+  filterChipText: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textMuted,
+  },
+  filterChipTextActive: {
+    color: theme.colors.background,
+    fontFamily: theme.typography.semibold,
   }
 });

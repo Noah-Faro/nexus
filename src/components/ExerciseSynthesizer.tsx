@@ -12,14 +12,22 @@ interface ExerciseSynthesizerProps {
   onSave: (exercise: Exercise) => void;
 }
 
-const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'Full Body'];
-const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
+const CATEGORIES: MuscleGroup[] = ['push', 'pull', 'legs', 'core', 'cardio'];
+const PRIMARY_MUSCLES = ['Chest', 'Back', 'Shoulders', 'Arms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Cardio', 'Full Body'];
+const EQUIPMENT: EquipmentType[] = ['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight'];
+const TRACKING_TYPES = [
+  { id: 'weight_reps', label: 'Weight & Reps' },
+  { id: 'time', label: 'Time Only (Seconds)' },
+  { id: 'time_distance', label: 'Time & Distance' }
+] as const;
 
 export default function ExerciseSynthesizer({ visible, onClose, onSave }: ExerciseSynthesizerProps) {
   const [name, setName] = useState('');
-  const [muscleGroup, setMuscleGroup] = useState(MUSCLE_GROUPS[0]);
-  const [equipment, setEquipment] = useState(EQUIPMENT[0]);
+  const [category, setCategory] = useState<MuscleGroup>('push');
+  const [primaryMuscle, setPrimaryMuscle] = useState(PRIMARY_MUSCLES[0]);
+  const [equipment, setEquipment] = useState<EquipmentType>('dumbbell');
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
+  const [trackingType, setTrackingType] = useState<'weight_reps' | 'time' | 'time_distance'>('weight_reps');
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertTitle, setAlertTitle] = useState('');
@@ -40,10 +48,12 @@ export default function ExerciseSynthesizer({ visible, onClose, onSave }: Exerci
     const newEx: Exercise = {
       id: 'custom-' + generateId(),
       name: name.trim(),
-      muscleGroup: muscleGroup.toLowerCase() as MuscleGroup,
-      equipment: equipment.toLowerCase() as EquipmentType,
+      muscleGroup: category,
+      primaryMuscle,
+      equipment,
       weightUnit,
-      incrementStep: weightUnit === 'kg' ? 2.5 : 5,
+      trackingType,
+      incrementStep: trackingType === 'time_distance' ? 0.1 : (weightUnit === 'kg' ? 2.5 : 5),
       isCustom: true
     };
 
@@ -79,15 +89,45 @@ export default function ExerciseSynthesizer({ visible, onClose, onSave }: Exerci
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.label}>PRIMARY MUSCLE GROUP</Text>
+            <Text style={styles.label}>CATEGORY (PPL)</Text>
             <View style={styles.chipContainer}>
-              {MUSCLE_GROUPS.map(mg => (
+              {CATEGORIES.map(cat => (
                 <TouchableOpacity 
-                  key={mg} 
-                  style={[styles.chip, muscleGroup === mg && styles.chipActive]}
-                  onPress={() => setMuscleGroup(mg)}
+                  key={cat} 
+                  style={[styles.chip, category === cat && styles.chipActive]}
+                  onPress={() => setCategory(cat)}
                 >
-                  <Text style={[styles.chipText, muscleGroup === mg && styles.chipTextActive]}>{mg}</Text>
+                  <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>{cat.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.label}>PRIMARY MUSCLE</Text>
+            <View style={styles.chipContainer}>
+              {PRIMARY_MUSCLES.map(pm => (
+                <TouchableOpacity 
+                  key={pm} 
+                  style={[styles.chip, primaryMuscle === pm && styles.chipActive]}
+                  onPress={() => setPrimaryMuscle(pm)}
+                >
+                  <Text style={[styles.chipText, primaryMuscle === pm && styles.chipTextActive]}>{pm}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.label}>TRACKING TYPE</Text>
+            <View style={styles.chipContainer}>
+              {TRACKING_TYPES.map(tt => (
+                <TouchableOpacity 
+                  key={tt.id} 
+                  style={[styles.chip, trackingType === tt.id && styles.chipActive]}
+                  onPress={() => setTrackingType(tt.id)}
+                >
+                  <Text style={[styles.chipText, trackingType === tt.id && styles.chipTextActive]}>{tt.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -102,26 +142,30 @@ export default function ExerciseSynthesizer({ visible, onClose, onSave }: Exerci
                   style={[styles.chip, equipment === eq && styles.chipActive]}
                   onPress={() => setEquipment(eq)}
                 >
-                  <Text style={[styles.chipText, equipment === eq && styles.chipTextActive]}>{eq}</Text>
+                  <Text style={[styles.chipText, equipment === eq && styles.chipTextActive]}>{eq.toUpperCase()}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.label}>WEIGHT UNIT</Text>
-            <View style={styles.chipContainer}>
-              {['kg', 'lbs'].map(u => (
-                <TouchableOpacity 
-                  key={u} 
-                  style={[styles.chip, weightUnit === u && styles.chipActive]}
-                  onPress={() => setWeightUnit(u as 'kg' | 'lbs')}
-                >
-                  <Text style={[styles.chipText, weightUnit === u && styles.chipTextActive]}>{u.toUpperCase()}</Text>
-                </TouchableOpacity>
-              ))}
+          {trackingType !== 'time' && (
+            <View style={styles.section}>
+              <Text style={styles.label}>{trackingType === 'time_distance' ? 'DISTANCE UNIT' : 'WEIGHT UNIT'}</Text>
+              <View style={styles.chipContainer}>
+                {['kg', 'lbs'].map(u => (
+                  <TouchableOpacity 
+                    key={u} 
+                    style={[styles.chip, weightUnit === u && styles.chipActive]}
+                    onPress={() => setWeightUnit(u as 'kg' | 'lbs')}
+                  >
+                    <Text style={[styles.chipText, weightUnit === u && styles.chipTextActive]}>
+                      {trackingType === 'time_distance' ? (u === 'kg' ? 'KM' : 'MILES') : u.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </View>
+          )}
         </ScrollView>
         <AppAlertModal
           visible={alertVisible}
