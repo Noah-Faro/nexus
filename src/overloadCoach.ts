@@ -40,6 +40,20 @@ export interface CoachResult {
    * usual). Undefined in every other case.
    */
   positionNote?: string;
+  coachNote?: string;
+}
+
+export function calculateComposite1RM(weight: number, reps: number): number {
+  if (reps <= 1) return weight;
+  const epley = weight * (1 + reps / 30);
+  const brzycki = reps === 37 ? weight : weight * (36 / (37 - reps));
+  const lombardi = weight * Math.pow(reps, 0.10);
+  return (epley + brzycki + lombardi) / 3;
+}
+
+export function calculateWeightFromComposite(c1RM: number, targetReps: number): number {
+  if (targetReps <= 1) return c1RM;
+  return c1RM / (1 + targetReps / 30);
 }
 
 /** A completed session's sets for a single exercise, most-recent first. */
@@ -310,20 +324,20 @@ export function suggestNextTarget(
   const lastMinWorkingReps = workingSets.reduce((min, set) => Math.min(min, set.reps), Infinity);
 
   // Helper to generate targets based on whether the working sets progress
-  const buildTargets = (topSetIncreaseWeight: boolean, topSetBaseReps: number): SetTarget[] => {
+  const buildTargets = (newTopSetWeight: number | undefined, topSetBaseReps: number): SetTarget[] => {
     return last.sets.map(s => {
       if (arch === 'STRAIGHT') {
         return {
-          weightKg: topSetIncreaseWeight ? round1(lastWeight + incrementKg) : lastWeight,
-          reps: topSetIncreaseWeight ? range.bottom : topSetBaseReps
+          weightKg: newTopSetWeight !== undefined ? newTopSetWeight : lastWeight,
+          reps: newTopSetWeight !== undefined ? range.bottom : topSetBaseReps
         };
       }
       
       const isTopSet = s.weightKg === lastWeight;
       if (isTopSet) {
         return {
-          weightKg: topSetIncreaseWeight ? round1(s.weightKg + incrementKg) : s.weightKg,
-          reps: topSetIncreaseWeight ? range.bottom : topSetBaseReps
+          weightKg: newTopSetWeight !== undefined ? newTopSetWeight : s.weightKg,
+          reps: newTopSetWeight !== undefined ? range.bottom : topSetBaseReps
         };
       } else {
         // Evaluate ramp/back-off sets independently
@@ -336,17 +350,46 @@ export function suggestNextTarget(
     });
   };
 
-  // Rule (a): every working set hit the top of the range.
-  const allAtTop = workingSets.every((set) => set.reps >= range.top);
-  if (allAtTop) {
-    const newWeight = round1(lastWeight + incrementKg);
+  // Intra-session RPE Coach Notes
+  let coachNote: string | undefined;
+  const lowRpeSet = last.sets.find((s) => s.rpe !== undefined && s.rpe < 8);
+  if (lowRpeSet) {
+    coachNote = "RIR > 2 detected, aim for +2 reps next set";
+  }
+
+  // Rule (a): Top Set Mastery
+  const firstSet = workingSets[0];
+  const topSetMastered = firstSet && firstSet.reps >= range.top;
+  const backOffsMaintained = workingSets.length > 1 
+    ? workingSets.slice(1).every((set) => set.reps >= range.bottom)
+    : true;
+
+  if (topSetMastered && backOffsMaintained) {
+    let newWeight = round1(lastWeight + incrementKg);
+    let reasoning = `Last time: ${describeSession(last)} — top set mastered and back-offs maintained. Time to go up.`;
+
+    if (firstSet.reps >= range.top + 3) {
+      const c1RM = calculateComposite1RM(firstSet.weightKg, firstSet.reps);
+      const mathWeight = calculateWeightFromComposite(c1RM, range.bottom);
+      if (incrementKg > 0) {
+        newWeight = Math.round(mathWeight / incrementKg) * incrementKg;
+      } else {
+        newWeight = round1(mathWeight);
+      }
+      
+      if (newWeight <= lastWeight && incrementKg > 0) {
+        newWeight = round1(lastWeight + incrementKg);
+      } else if (newWeight > lastWeight + incrementKg) {
+        reasoning = `Last time: ${describeSession(last)} — significant overshoot! Jumping weight to match new estimated 1RM.`;
+      }
+    }
+
     return {
       architecture: arch,
-      targets: buildTargets(true, range.bottom),
+      targets: buildTargets(newWeight, range.bottom),
       suggestion: { weightKg: newWeight, targetReps: range.bottom },
-      reasoning:
-        `Last time: ${describeSession(last)} — working sets at top of range. ` +
-        `Time to go up.`,
+      reasoning,
+      ...(coachNote ? { coachNote } : {})
     };
   }
 
@@ -360,8 +403,12 @@ export function suggestNextTarget(
       return s.weightKg === prevWeight;
     });
 
-    const belowLast = workingSets.some((set) => set.reps < range.bottom);
-    const belowPrev = prevWorkingSets.some((set) => set.reps < range.bottom);
+    const isGenuineFailure = (set: { reps: number; rpe?: number }) => {
+      return set.reps < range.bottom && (set.rpe === undefined || set.rpe >= 9);
+    };
+
+    const belowLast = workingSets.some(isGenuineFailure);
+    const belowPrev = prevWorkingSets.some(isGenuineFailure);
 
     let softenedLast = false;
     let positionNote: string | undefined;
@@ -386,24 +433,26 @@ export function suggestNextTarget(
           : ` Deload option: -${DELOAD_PERCENT}% to ${weightForTarget(deloadWeight)}.`;
       return {
         architecture: arch,
-        targets: buildTargets(false, range.bottom),
+        targets: buildTargets(undefined, range.bottom),
         suggestion: { weightKg: lastWeight, targetReps: range.bottom },
         reasoning:
           `Last time: ${describeSession(last)} — dropped below ${range.bottom} reps ` +
           `two sessions running. Hold weight and aim for ` +
           `${range.bottom} solid reps.${deloadNote}`,
+        ...(coachNote ? { coachNote } : {})
       };
     }
 
     if (softenedLast && positionNote !== undefined) {
       return {
         architecture: arch,
-        targets: buildTargets(false, range.bottom),
+        targets: buildTargets(undefined, range.bottom),
         suggestion: { weightKg: lastWeight, targetReps: range.bottom },
         reasoning:
           `Last time: ${describeSession(last)}. ` +
           `Hold ${weightForTarget(lastWeight)} and aim for ${range.bottom} solid reps.`,
         positionNote,
+        ...(coachNote ? { coachNote } : {})
       };
     }
   }
@@ -412,11 +461,12 @@ export function suggestNextTarget(
   const targetReps = Math.min(lastMinWorkingReps + 1, range.top);
   return {
     architecture: arch,
-    targets: buildTargets(false, targetReps),
+    targets: buildTargets(undefined, targetReps),
     suggestion: { weightKg: lastWeight, targetReps },
     reasoning:
       `Last time: ${describeSession(last)}. ` +
       `Keep weight, aim for ${targetReps} reps on working sets this time.`,
+    ...(coachNote ? { coachNote } : {})
   };
 }
 
