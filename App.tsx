@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, View, SafeAreaView, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image, Text } from 'react-native';
+import { StyleSheet, View, SafeAreaView, Platform, StatusBar, KeyboardAvoidingView, Keyboard, Image, Text, AppState } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { useFonts, Outfit_400Regular, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
@@ -43,6 +43,7 @@ import { replayPendingMerge } from './src/backup';
 import { recordDeletion } from './src/tombstones';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { syncDailyRecovery } from './src/healthSync';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -410,6 +411,19 @@ export default function App() {
     });
     return () => {
       showSubscription.remove();
+    };
+  }, []);
+
+  // HealthKit Daily Sync on active app state
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        syncDailyRecovery().catch(err => console.log('HealthKit sync failed:', err));
+      }
+    });
+
+    return () => {
+      subscription.remove();
     };
   }, []);
 

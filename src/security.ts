@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import CryptoJS from 'crypto-js';
 import * as SecureStore from 'expo-secure-store';
+import QuickCrypto from 'react-native-quick-crypto';
 
 const MASTER_KEY_ALIAS = 'nexus_master_key_v1';
 
@@ -31,11 +32,65 @@ export async function getOrGenerateMasterKey(): Promise<string> {
 }
 
 /**
- * Encrypts a plaintext string using AES-256-CBC with an HMAC-SHA256 signature
- * for authenticated encryption (Encrypt-then-MAC), ensuring GCM-grade tamper resistance.
- * Returns a payload string in the format: iv(hex):hmac(base64):ciphertext(base64)
+ * Encrypts a plaintext string using AES-256-GCM via react-native-quick-crypto.
+ * Returns a payload string in the format: iv(hex):authTag(base64):ciphertext(base64)
  */
 export function encryptAESGCM(plaintext: string, keyHex: string): string {
+  const iv = QuickCrypto.randomBytes(12);
+  const key = Buffer.from(keyHex, 'hex');
+  const cipher = QuickCrypto.createCipheriv('aes-256-gcm', key, iv);
+  
+  let ciphertext = cipher.update(plaintext, 'utf8', 'base64');
+  ciphertext += cipher.final('base64');
+  
+  const authTag = cipher.getAuthTag();
+  
+  return `${iv.toString('hex')}:${authTag.toString('base64')}:${ciphertext}`;
+}
+
+/**
+ * Decrypts a payload string (iv:authTag:ciphertext) using AES-256-GCM via react-native-quick-crypto.
+ */
+export function decryptAESGCM(payload: string, keyHex: string): string {
+  const parts = payload.split(':');
+  if (parts.length !== 3) {
+    throw new Error('Invalid encrypted payload format');
+  }
+  
+  const [ivHexStr, authTagB64, ciphertext] = parts;
+  
+  const key = Buffer.from(keyHex, 'hex');
+  const iv = Buffer.from(ivHexStr, 'hex');
+  const authTag = Buffer.from(authTagB64, 'base64');
+  
+  const decipher = QuickCrypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(authTag as any);
+  
+  let decrypted = decipher.update(ciphertext, 'base64', 'utf8');
+  decrypted += decipher.final('utf8');
+  
+  return decrypted;
+}
+
+/**
+ * Derives a 256-bit key from a user password using PBKDF2 natively.
+ */
+export function deriveKeyFromPassword(password: string, saltHex?: string): { key: string, salt: string } {
+  const salt = saltHex ? Buffer.from(saltHex, 'hex') : QuickCrypto.randomBytes(16);
+  const saltHexStr = salt.toString('hex');
+  
+  const keyBuffer = QuickCrypto.pbkdf2Sync(password, salt, 10000, 32, 'sha256');
+  
+  return {
+    key: keyBuffer.toString('hex'),
+    salt: saltHexStr
+  };
+}
+
+/**
+ * [LEGACY] Encrypts a plaintext string using AES-256-CBC with an HMAC-SHA256 signature
+ */
+export function encryptLegacyAESGCM(plaintext: string, keyHex: string): string {
   // Generate random 16-byte IV securely
   const ivBytes = Crypto.getRandomValues(new Uint8Array(16));
   const ivHexStr = Array.from(ivBytes)
@@ -72,9 +127,9 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Decrypts a payload string (iv:hmac:ciphertext) using AES-256-CBC and validates the HMAC integrity.
+ * [LEGACY] Decrypts a payload string (iv:hmac:ciphertext) using AES-256-CBC and validates the HMAC integrity.
  */
-export function decryptAESGCM(payload: string, keyHex: string): string {
+export function decryptLegacyAESGCM(payload: string, keyHex: string): string {
   const parts = payload.split(':');
   if (parts.length !== 3) {
     throw new Error('Invalid encrypted payload format');
@@ -105,9 +160,9 @@ export function decryptAESGCM(payload: string, keyHex: string): string {
 }
 
 /**
- * Derives a 256-bit key from a user password using PBKDF2.
+ * [LEGACY] Derives a 256-bit key from a user password using PBKDF2.
  */
-export function deriveKeyFromPassword(password: string, saltHex?: string): { key: string, salt: string } {
+export function deriveLegacyKeyFromPassword(password: string, saltHex?: string): { key: string, salt: string } {
   let saltHexStr = saltHex;
   if (!saltHexStr) {
     const saltBytes = Crypto.getRandomValues(new Uint8Array(16));

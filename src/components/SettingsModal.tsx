@@ -14,6 +14,7 @@ import * as SecureStore from 'expo-secure-store';
 import { restoreFromSnapshot, hasPreMergeSnapshot, clearPreMergeSnapshot } from '../syncSnapshot';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppAlertModal, { AppAlertButton } from './AppAlertModal';
+import { initializeHealthKit } from '../healthSync';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -478,6 +479,31 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
                   trackColor={{ false: theme.colors.surface, true: '#34C759' }}
                   ios_backgroundColor={theme.colors.surface}
                 />
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Health Integrations</Text>
+              </View>
+
+              <View style={styles.rowVertical}>
+                <Text style={styles.subtext}>
+                  Sync Apple Health data (Sleep, Resting HR, HRV) to calculate your daily recovery score.
+                </Text>
+                <TouchableOpacity 
+                  style={[styles.backupBtn, { marginTop: 4, width: '100%' }]} 
+                  onPress={async () => {
+                    const success = await initializeHealthKit();
+                    if (success) {
+                      triggerAlert('Apple Health', 'Successfully connected to Apple Health.', [{ text: 'OK' }]);
+                    } else {
+                      triggerAlert('Apple Health', 'Failed to connect to Apple Health. Please check your permissions in the Settings app.', [{ text: 'OK' }]);
+                    }
+                  }}
+                >
+                  <Text style={styles.backupBtnText}>Connect Apple Health</Text>
+                </TouchableOpacity>
               </View>
             </View>
 

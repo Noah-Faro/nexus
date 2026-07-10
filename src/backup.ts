@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { encryptAESGCM, decryptAESGCM, deriveKeyFromPassword } from './security';
+import { encryptAESGCM, decryptAESGCM, decryptLegacyAESGCM, deriveKeyFromPassword } from './security';
 import { loadSettings, loadLogs } from './storage';
 import { loadWorkoutSessions, loadTemplates, loadCustomExercises, loadExerciseDefaults } from './trainingStorage';
 import { saveSettings, saveLogs } from './storage';
@@ -210,7 +210,12 @@ export async function importVaultBackupFromString(fileStr: string, password: str
   const { key } = getCachedOrDeriveKey(password, backupData.salt);
   let decryptedStr = '';
   try {
-    decryptedStr = decryptAESGCM(backupData.payload, key);
+    try {
+      decryptedStr = decryptAESGCM(backupData.payload, key);
+    } catch (e) {
+      console.log('Failed native AES-GCM decryption, falling back to legacy...');
+      decryptedStr = decryptLegacyAESGCM(backupData.payload, key);
+    }
   } catch (e) {
     throw new Error('Incorrect password or corrupt payload.');
   }
@@ -379,7 +384,11 @@ export async function computeSyncDiffLocal(fileStr: string): Promise<SyncDiff> {
   const { key } = deriveKeyFromPassword(pwd, backupData.salt);
   let decryptedStr = '';
   try {
-    decryptedStr = decryptAESGCM(backupData.payload, key);
+    try {
+      decryptedStr = decryptAESGCM(backupData.payload, key);
+    } catch (e) {
+      decryptedStr = decryptLegacyAESGCM(backupData.payload, key);
+    }
   } catch (e) {
     throw new Error('Incorrect password or corrupt payload.');
   }
