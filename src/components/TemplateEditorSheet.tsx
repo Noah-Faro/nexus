@@ -127,11 +127,6 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
         <SheetHeader
           title={template ? 'Edit Template' : 'New Template'}
           onClose={onClose}
-          leftAction={
-            <TouchableOpacity onPress={onClose} style={styles.deleteHeaderBtn} activeOpacity={0.7}>
-              <X size={20} color={theme.colors.textMuted} />
-            </TouchableOpacity>
-          }
           rightAction={
             template && onDelete ? (
               <TouchableOpacity onPress={() => {
@@ -146,7 +141,7 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
               }} style={styles.deleteHeaderBtn} activeOpacity={0.7}>
                 <Trash2 size={20} color={theme.colors.accentRed} />
               </TouchableOpacity>
-            ) : null
+            ) : undefined
           }
         />
 

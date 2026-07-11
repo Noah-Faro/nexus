@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { UserSettings } from '../types';
 import SegmentedControl from './SegmentedControl';
+import SheetHeader from './SheetHeader';
 import { calculateGoal } from '../storage';
 import { exportVaultBackup, pickAndImportBackup } from '../backup';
 import { Lock, Download, UploadCloud, Cloud, RefreshCw, RotateCcw } from 'lucide-react-native';
@@ -22,11 +23,21 @@ interface SettingsModalProps {
   onSave: (settings: UserSettings) => void;
   // Fix B: Called when user enables Auto-Sync (while connected) — triggers immediate full sync
   onAutoSyncEnabled?: () => void;
-  // Fix D1: Called after a successful manual import — reloads React state from AsyncStorage
-  onImportComplete?: () => void;
+  // Fix D1: Called after a successful manual import — reloads React state and runs import sync flow.
+  onImportComplete?: () => Promise<void>;
+  // Direct sync/restore only: reloads App state without starting another cloud operation.
+  onExternalDataApplied?: () => Promise<void>;
 }
 
-export default function SettingsModal({ visible, onClose, settings, onSave, onAutoSyncEnabled, onImportComplete }: SettingsModalProps) {
+export default function SettingsModal({
+  visible,
+  onClose,
+  settings,
+  onSave,
+  onAutoSyncEnabled,
+  onImportComplete,
+  onExternalDataApplied,
+}: SettingsModalProps) {
   const [userName, setUserName] = useState(settings.userName || '');
   const [weight, setWeight] = useState(String(settings.weight));
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>(settings.weightUnit);
@@ -38,6 +49,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
   const [lagNotificationsEnabled, setLagNotificationsEnabled] = useState(settings.lagNotificationsEnabled !== false);
   const [googleDriveAutoSyncEnabled, setGoogleDriveAutoSyncEnabled] = useState(settings.googleDriveAutoSyncEnabled !== false);
   const [primaryGoal, setPrimaryGoal] = useState<'hypertrophy' | 'strength'>(settings.primaryGoal || 'hypertrophy');
+  const [rpeEnabled, setRpeEnabled] = useState(settings.rpeEnabled || false);
   const [wakeError, setWakeError] = useState(false);
   const [sleepError, setSleepError] = useState(false);
 
@@ -90,6 +102,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
       setLagNotificationsEnabled(settings.lagNotificationsEnabled !== false);
       setGoogleDriveAutoSyncEnabled(settings.googleDriveAutoSyncEnabled !== false);
       setPrimaryGoal(settings.primaryGoal || 'hypertrophy');
+      setRpeEnabled(settings.rpeEnabled || false);
       setWakeError(false);
       setSleepError(false);
       
@@ -157,6 +170,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
       lagNotificationsEnabled,
       googleDriveAutoSyncEnabled,
       primaryGoal,
+      rpeEnabled,
     };
     onSave(updatedSettings);
     onClose();
@@ -213,7 +227,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
         // onImportComplete reloads settings+logs in App.tsx and triggers an auto-push
         // to ensure Drive is updated with the merged import before next startup.
         setBackupSuccess('Import successful! Data merged.');
-        onImportComplete?.();
+        await onImportComplete?.();
       } else {
         setBackupError('Import cancelled: No file selected.');
       }
@@ -239,6 +253,7 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
       await performDriveSync(accessToken, backupPassword, (msg) => {
         setSyncStatus(msg);
       });
+      await onExternalDataApplied?.();
       
       // Save password securely in device keychain for seamless startup auto-syncs
       await SecureStore.setItemAsync('nexus_vault_password', backupPassword).catch(console.error);
@@ -276,8 +291,8 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
             await restoreFromSnapshot(backupPassword);
             await clearPreMergeSnapshot();
             setCanUndoSync(false);
+            await onExternalDataApplied?.();
             setBackupSuccess('Undid last sync successfully.');
-            onImportComplete?.(); // Reload state
           } catch (err: any) {
             setBackupError(err.message || 'Undo sync failed');
           } finally {
@@ -292,17 +307,15 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.overlay}>
         <View style={styles.modalContent}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Settings</Text>
-            <TouchableOpacity onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onClose();
-            }} style={styles.closeButton}>
-              <View style={styles.closeIconBg}>
-                <X size={20} color={theme.colors.text} />
-              </View>
-            </TouchableOpacity>
-          </View>
+          <SheetHeader 
+            title="Settings" 
+            onClose={onClose} 
+            rightAction={
+              <TouchableOpacity onPress={handleSave}>
+                <Text style={[styles.saveBtnText, { color: theme.colors.text }]}>Save</Text>
+              </TouchableOpacity>
+            } 
+          />
 
           <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
             <View style={styles.card}>
@@ -366,6 +379,24 @@ export default function SettingsModal({ visible, onClose, settings, onSave, onAu
                   selectedValue={primaryGoal}
                   onChange={setPrimaryGoal}
                   labels={['Hypertrophy', 'Strength']}
+                />
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.row}>
+                <View style={styles.textStack}>
+                  <Text style={styles.label}>Enable RPE</Text>
+                  <Text style={styles.subtext}>Track Rate of Perceived Exertion</Text>
+                </View>
+                <Switch
+                  value={rpeEnabled}
+                  onValueChange={(val) => {
+                    setRpeEnabled(val);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  trackColor={{ false: theme.colors.surface, true: '#34C759' }}
+                  ios_backgroundColor={theme.colors.surface}
                 />
               </View>
             </View>
@@ -693,16 +724,6 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.bold,
     fontSize: 18,
     color: theme.colors.text,
-  },
-  closeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 14,
-  },
-  closeIconBg: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: 15,
-    padding: 4,
   },
   scrollBody: {
     padding: theme.spacing.lg,

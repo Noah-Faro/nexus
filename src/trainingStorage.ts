@@ -1,4 +1,4 @@
-import { loadFromStorage, saveToStorage } from './utils';
+import { loadFromStorage, saveToStorage, saveToStorageStrict } from './utils';
 import { WorkoutSession, WorkoutTemplate, Exercise, ExerciseDefaults } from './trainingTypes';
 
 const SESSIONS_KEY = '@nexus_training_sessions';
@@ -19,7 +19,7 @@ export async function loadTemplates(): Promise<WorkoutTemplate[]> {
 }
 
 export async function saveTemplates(templates: WorkoutTemplate[]): Promise<void> {
-  return saveToStorage<WorkoutTemplate[]>(TEMPLATES_KEY, templates);
+  return saveToStorageStrict<WorkoutTemplate[]>(TEMPLATES_KEY, templates);
 }
 
 const DEFAULT_TEMPLATES: WorkoutTemplate[] = [

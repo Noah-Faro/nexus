@@ -36,6 +36,10 @@ export default function SheetHeader({
           <TouchableOpacity onPress={handleClose} style={styles.textBtn}>
             <Text style={styles.cancelText}>{closeLabel}</Text>
           </TouchableOpacity>
+        ) : onClose && !closeLabel ? (
+          <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+            <X size={20} color={theme.colors.text} />
+          </TouchableOpacity>
         ) : null}
       </View>
 
@@ -51,10 +55,6 @@ export default function SheetHeader({
       <View style={[styles.sideContainer, styles.rightSide]}>
         {rightAction ? (
           rightAction
-        ) : onClose && !closeLabel ? (
-          <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-            <X size={20} color={theme.colors.textMuted} />
-          </TouchableOpacity>
         ) : null}
       </View>
     </View>
@@ -93,9 +93,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   closeBtn: {
-    backgroundColor: '#1c1c1e',
-    padding: 6,
-    borderRadius: 99,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: 15,
+    padding: 4,
   },
   textBtn: {
     paddingVertical: 4,

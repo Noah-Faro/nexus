@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
-import { Trash2, Search, ChevronRight, ChevronDown, Plus } from 'lucide-react-native';
+import { Trash2, Search, ChevronRight, ChevronDown, Plus, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../theme';
 import { Exercise } from '../trainingTypes';
 import { EXERCISE_LIBRARY } from '../exerciseLibrary';
-import { loadExerciseDefaults, saveExerciseDefaults, loadCustomExercises, saveCustomExercises } from '../trainingStorage';
+import { loadCustomExercises, saveCustomExercises } from '../trainingStorage';
 import { recordDeletion } from '../tombstones';
 import StepperInput from './StepperInput';
 import SheetHeader from './SheetHeader';
@@ -25,10 +25,8 @@ type CategoryType = 'all' | 'push' | 'pull' | 'legs' | 'core' | 'cardio';
 
 export default function TrainingSettings({ onClose, customExercises, onCustomExercisesChange }: TrainingSettingsProps) {
   const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [defaults, setDefaults] = useState<Record<string, { defaultWeight: number, defaultReps: number, weightUnit?: 'kg' | 'lbs' }>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<CategoryType>('all');
-  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null);
   const [synthVisible, setSynthVisible] = useState(false);
 
   const [gymProfiles, setGymProfiles] = useState<GymProfile[]>([defaultGymProfile]);
@@ -59,9 +57,6 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
   useEffect(() => {
     async function loadData() {
       setExercises([...Object.values(EXERCISE_LIBRARY), ...customExercises]);
-      
-      const loadedDefaults = await loadExerciseDefaults();
-      setDefaults(loadedDefaults);
 
       const loadedProfiles = await loadGymProfiles();
       setGymProfiles(loadedProfiles);
@@ -71,20 +66,7 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
     loadData();
   }, [customExercises]);
 
-  const updateDefault = (id: string, field: 'defaultWeight' | 'defaultReps' | 'weightUnit', value: any) => {
-    setDefaults(prev => {
-      const ex = exercises.find(e => e.id === id);
-      const fallbackWeight = ex?.equipment === 'bodyweight' ? 0 : 20;
-      const current = prev[id] || { defaultWeight: fallbackWeight, defaultReps: 10, weightUnit: 'kg' };
-      return {
-        ...prev,
-        [id]: { ...current, [field]: value }
-      };
-    });
-  };
-
   const handleSave = async () => {
-    await saveExerciseDefaults(defaults);
     await saveGymProfiles(gymProfiles);
     await setActiveGymId(activeGymId);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -102,13 +84,6 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
             const updated = customExercises.filter(e => e.id !== id);
             await saveCustomExercises(updated);
             onCustomExercisesChange(updated);
-            
-            // Clean up its default entry too
-            setDefaults(prev => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
           }
         }
       ]
@@ -156,21 +131,9 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
   };
 
   const renderExerciseSetting = (ex: Exercise) => {
-    const fallbackWeight = ex.equipment === 'bodyweight' ? 0 : 20;
-    const exDefaults = defaults[ex.id] || { defaultWeight: fallbackWeight, defaultReps: 10, weightUnit: ex.weightUnit || 'kg' };
-    const currentUnit = exDefaults.weightUnit || ex.weightUnit || 'kg';
-    const isExpanded = expandedExerciseId === ex.id;
-
     return (
       <View key={ex.id} style={styles.settingAccordionContainer}>
-        <TouchableOpacity
-          style={styles.settingRowHeader}
-          onPress={() => {
-            Haptics.selectionAsync();
-            setExpandedExerciseId(prev => prev === ex.id ? null : ex.id);
-          }}
-          activeOpacity={0.7}
-        >
+        <View style={styles.settingRowHeader}>
           <View style={styles.exInfo}>
             <View style={styles.exNameContainer}>
               <Text style={styles.exerciseName} numberOfLines={1} ellipsizeMode="tail">
@@ -201,63 +164,7 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
               </View>
             </View>
           </View>
-          <View style={styles.chevronContainer}>
-            {isExpanded ? (
-              <ChevronDown size={18} color={theme.colors.textMuted} />
-            ) : (
-              <ChevronRight size={18} color={theme.colors.textMuted} />
-            )}
-          </View>
-        </TouchableOpacity>
-
-        {isExpanded && (
-          <View style={styles.expandedPanel}>
-            {ex.trackingType !== 'time' && (
-              <View style={styles.controlItem}>
-                <Text style={styles.controlLabel}>
-                  {ex.trackingType === 'time_distance' ? `Distance (${currentUnit === 'kg' ? 'km' : 'mi'})` : `Weight (${currentUnit})`}
-                </Text>
-                <StepperInput
-                  value={exDefaults.defaultWeight}
-                  onChange={(val) => updateDefault(ex.id, 'defaultWeight', Number(val.toFixed(1)))}
-                  min={0}
-                  step={ex.trackingType === 'time_distance' ? 0.1 : (ex.incrementStep || 2.5)}
-                />
-              </View>
-            )}
-
-            <View style={styles.controlItem}>
-              <Text style={styles.controlLabel}>
-                {ex.trackingType === 'time' ? 'Time (sec)' : (ex.trackingType === 'time_distance' ? 'Time (min)' : 'Reps')}
-              </Text>
-              <StepperInput
-                value={exDefaults.defaultReps}
-                onChange={(val) => updateDefault(ex.id, 'defaultReps', val)}
-                min={1}
-                step={ex.trackingType === 'time' ? 5 : 1}
-              />
-            </View>
-
-            {ex.trackingType !== 'time' && (
-              <View style={styles.controlItem}>
-                <Text style={styles.controlLabel}>{ex.trackingType === 'time_distance' ? 'Dist. Unit' : 'Unit'}</Text>
-                <TouchableOpacity
-                  style={[styles.unitToggle, currentUnit === 'lbs' && styles.unitToggleLbs]}
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    const nextUnit = currentUnit === 'kg' ? 'lbs' : 'kg';
-                    updateDefault(ex.id, 'weightUnit', nextUnit);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.unitToggleText}>
-                    {ex.trackingType === 'time_distance' ? (currentUnit === 'kg' ? 'KM' : 'MILES') : currentUnit.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
+        </View>
       </View>
     );
   };
@@ -308,7 +215,7 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
           <Search size={20} color={theme.colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search defaults..."
+            placeholder="Search exercises..."
             placeholderTextColor={theme.colors.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -348,7 +255,7 @@ export default function TrainingSettings({ onClose, customExercises, onCustomExe
             })
           ) : (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No exercise defaults match your filters</Text>
+              <Text style={styles.emptyText}>No exercises match your filters</Text>
             </View>
           )}
         </ScrollView>

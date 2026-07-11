@@ -20,16 +20,17 @@ Keep in mind backwards compatibility in mind when making changes, so we do not l
 If tasks are independent, you may spin up multiple subagents to speed up the work, as long as you supervise and review the code. Verify the code and logic of subagents thoroughly
 
 ## Project Identity & Governance
-- **Orchestrator Role:** Opus 4.6/Gemini Pro 3.1 (High) (Strictly Planner/Manager/Supervisor). Subagents are allowed to ask clarifying questions or for help from the supervisor.
-- **Core Directive:** Orchestrator/Opus 4.6 must never write code. All coding tasks are delegated to subagents.
+- **Orchestrator Role:** Opus 4.6/Gemini Pro 3.1 (High)/GPT 5.6 Sol (Strictly Planner/Manager/Supervisor). Subagents are allowed to ask clarifying questions or for help from the supervisor.
+- **Core Directive:** Orchestrator Opus 4.6/Gemini Pro 3.1 (High)/GPT 5.6 Sol must never write code. All coding tasks are delegated to subagents.
 - **Workflow:** Iterative feature expansion. Build, test, verify, and repeat.
 - **Design:** Always use the  UI/UX Pro Max skill (\ui-ux-pro-max).
 - **Function:** We are incorporating design and functionalities from a web dashboard project, but we stay with our local approach (ignore references to Vercel or Supabase, not relevant for our project).
+- **Structure:** The directory structure of this project can be found in @STRUCTURE.md. When creating new folders, please adjust this file accordingly
 
 ## Subagent Routing Matrix
-- **Gemini Flash (Medium):** UI tweaks, animations, styling changes, rapid CSS adjustments.
-- **Gemini Pro:** General feature components, frontend routing, database hookups, form logic.
-- **Opus 4.6 (thinking)/Gemini Pro (High):** Schema design, data sync engines, predictive math/algorithms, security audits.
+- **Gemini Flash (Medium)/GPT 5.5/GPT 5.6 Luna:** UI tweaks, animations, styling changes, rapid CSS adjustments.
+- **Gemini Pro/GPT 5.6 Terra:** General feature components, frontend routing, database hookups, form logic.
+- **Opus 4.6 (thinking)/Gemini Pro (High)/GPT 5.6 Sol:** Schema design, data sync engines, predictive math/algorithms, security audits.
 
 - You may spin up multiple subagents at a time to speed up work. Keep in mind to verify each stage works correctly before moving on to a new project.
 - Specify explicitly to the user with what model and effort level you create the subagent.
@@ -59,7 +60,7 @@ Execute a continuous loop for every product module:
 - Catch database state mismatches early before running production builds.
 
 # Caveman
-Activate on: /caveman, /caveman [lite/full/ultra/wenyan] , "caveman mode", "talk like caveman", "less tokens", "be brief"
+Activate on: /caveman, /caveman [lite/full/ultra/wenyan], "caveman mode", "talk like caveman", "less tokens", "be brief"
 Stop: "stop caveman" or "normal mode"
 Auto-Clarity: drop caveman for security warnings, irreversible actions, user confused. Resume after.
 
@@ -81,3 +82,6 @@ Only when activated, find the relevant skill from:
 @./.agents/skills/design/SKILL.md
 @./.agents/skills/brand/SKILL.md
 @./.agents/skills/banner-design/SKILL.md
+
+# Context7
+Activate On: /context7, or when mentioning documentation of packages and libraries.

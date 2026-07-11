@@ -21,13 +21,13 @@ export default function StepperInput({ value, onChange, min = 0, max = 9999, ste
   const handleDecrement = () => {
     Haptics.selectionAsync();
     const newVal = Math.max(min, value - step);
-    onChange(Number(newVal.toFixed(1)));
+    onChange(Number(newVal.toFixed(2)));
   };
 
   const handleIncrement = () => {
     Haptics.selectionAsync();
     const newVal = Math.min(max, value + step);
-    onChange(Number(newVal.toFixed(1)));
+    onChange(Number(newVal.toFixed(2)));
   };
 
   const handleBlur = () => {

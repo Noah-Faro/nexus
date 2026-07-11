@@ -20,6 +20,9 @@ interface CoachCardProps {
   incrementKg?: number;
   /** Exclude session IDs (e.g. current active session). */
   excludeSessionId?: string;
+  targetReps?: number;
+  rpeEnabled?: boolean;
+  primaryGoal?: 'hypertrophy' | 'strength';
 }
 
 /**
@@ -31,6 +34,9 @@ export default function CoachCard({
   history,
   incrementKg,
   excludeSessionId,
+  targetReps,
+  rpeEnabled,
+  primaryGoal,
 }: CoachCardProps) {
   const result: CoachResult = useMemo(() => {
     const filteredHistory = excludeSessionId
@@ -38,10 +44,12 @@ export default function CoachCard({
       : history;
     const coachHistory = buildCoachHistory(exerciseId, filteredHistory);
     return suggestNextTarget(coachHistory, {
-      range: DEFAULT_REP_RANGE,
+      targetReps,
+      rpeEnabled,
+      primaryGoal,
       incrementKg: incrementKg ?? WEIGHT_STEP_KG,
     });
-  }, [exerciseId, history, incrementKg, excludeSessionId]);
+  }, [exerciseId, history, incrementKg, excludeSessionId, targetReps, rpeEnabled, primaryGoal]);
 
   const target = result.suggestion;
   const targets = result.targets;

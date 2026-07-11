@@ -46,14 +46,22 @@ export async function loadFromStorage<T>(key: string, fallback: T): Promise<T> {
 
 export async function saveToStorage<T>(key: string, data: T): Promise<void> {
   try {
-    const jsonStr = JSON.stringify(data);
-    const keyBuffer = await getOrGenerateMasterKey();
-    const encryptedStr = encryptAESGCM(jsonStr, keyBuffer);
-    await AsyncStorage.setItem(key, encryptedStr);
+    await saveToStorageStrict(key, data);
   } catch (e) {
     console.error(`Error saving key "${key}" to storage`, e);
     if (e instanceof Error && e.message === 'SECURE_STORE_LOCKED') {
       throw e;
     }
   }
+}
+
+/**
+ * Transactional storage writes must observe every encryption/storage failure.
+ * Legacy callers keep saveToStorage's historical best-effort behavior.
+ */
+export async function saveToStorageStrict<T>(key: string, data: T): Promise<void> {
+  const jsonStr = JSON.stringify(data);
+  const keyBuffer = await getOrGenerateMasterKey();
+  const encryptedStr = encryptAESGCM(jsonStr, keyBuffer);
+  await AsyncStorage.setItem(key, encryptedStr);
 }

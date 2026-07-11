@@ -11,6 +11,7 @@ import { generateId, parseTimeToDecimal } from './src/utils';
 import { 
   loadSettings, 
   saveSettings, 
+  saveSettingsStrict,
   loadLogs, 
   saveLogs, 
   calculateGoal, 
@@ -59,6 +60,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<'tracker' | 'stats' | 'calendar'>('tracker');
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [logs, setLogs] = useState<DrinkLog[]>([]);
+  const [trainingDataRevision, setTrainingDataRevision] = useState(0);
   const [selectedType, setSelectedType] = useState<string>('water');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [ironCommand, setIronCommand] = useState<string | undefined>(undefined);
@@ -78,6 +80,19 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const hasCheckedSync = useRef(false);
   const pushInFlight = useRef(false); // Finding #3: push debounce lock
+  const pushPending = useRef(false);
+  const pushPromise = useRef<Promise<void> | null>(null);
+
+  const reloadMergedAppData = async (): Promise<{ settings: UserSettings; logs: DrinkLog[] }> => {
+    const [storedSettings, storedLogs] = await Promise.all([
+      loadSettings(),
+      loadLogs(),
+    ]);
+    setSettings(storedSettings);
+    setLogs(storedLogs);
+    setTrainingDataRevision(revision => revision + 1);
+    return { settings: storedSettings, logs: storedLogs };
+  };
 
   // Task 5c: Merge Preview Modal State
   const [syncDiffData, setSyncDiffData] = useState<any>(null);
@@ -104,10 +119,7 @@ export default function App() {
             try {
               const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Dirty sync:', msg));
               if (success) {
-                const storedSettings = await loadSettings();
-                const storedLogs = await loadLogs();
-                setSettings(storedSettings);
-                setLogs(storedLogs);
+                await reloadMergedAppData();
                 await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
                 console.log('Dirty-flag full sync completed successfully.');
                 return;
@@ -138,10 +150,7 @@ export default function App() {
                 // Fallback to normal if password wasn't cached or something else failed
                 const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Fallback sync:', msg));
                 if (success) {
-                  const storedSettings = await loadSettings();
-                  const storedLogs = await loadLogs();
-                  setSettings(storedSettings);
-                  setLogs(storedLogs);
+                  await reloadMergedAppData();
                   await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
                 }
               }
@@ -180,10 +189,7 @@ export default function App() {
       if (savedPassword) {
         const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Merge preview sync:', msg));
         if (success) {
-          const storedSettings = await loadSettings();
-          const storedLogs = await loadLogs();
-          setSettings(storedSettings);
-          setLogs(storedLogs);
+          await reloadMergedAppData();
           await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
           triggerAlert('Merge Complete', 'Successfully merged cloud changes.');
         }
@@ -207,11 +213,8 @@ export default function App() {
       if (success) {
         // Save the successful password securely for future silent syncs
         await SecureStore.setItemAsync('nexus_vault_password', password).catch(console.error);
-        // Reload data into state
-        const storedSettings = await loadSettings();
-        const storedLogs = await loadLogs();
-        setSettings(storedSettings);
-        setLogs(storedLogs);
+        // Reload data into state and notify mounted feature modules.
+        await reloadMergedAppData();
         triggerAlert('Cloud Sync Complete', 'Successfully restored your vault from Google Drive.');
       } else {
         await SecureStore.deleteItemAsync('nexus_vault_password').catch(console.error);
@@ -226,29 +229,94 @@ export default function App() {
   };
 
   const handleCloudAutoPush = async () => {
-    // Finding #3: Skip if a push is already in flight to prevent race conditions
-    if (pushInFlight.current) return;
-    if (accessToken && settings?.googleDriveAutoSyncEnabled !== false) {
+    // Queue every local mutation. A call arriving during an upload is replayed after
+    // the active upload so the latest encrypted storage snapshot is not dropped.
+    pushPending.current = true;
+
+    if (pushInFlight.current) {
+      if (pushPromise.current) {
+        await pushPromise.current;
+      }
+      return;
+    }
+
+    // Acquire the lock before the first await to close the SecureStore race window.
+    pushInFlight.current = true;
+    const pushTask = (async () => {
+      setIsSyncing(true);
       try {
-        const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
-        if (savedPassword) {
-          pushInFlight.current = true;
-          setIsSyncing(true);
-          console.log('Starting silent background cloud push...');
-          await performDrivePush(accessToken, savedPassword);
-          console.log('Silent background cloud push completed.');
-        }
-      } catch (err: any) {
-        if (err.message === 'SECURE_STORE_LOCKED') {
-          console.log('SecureStore locked during background push, aborting cleanly.');
-        } else {
-          console.log('Silent background cloud push failed:', err);
+        while (pushPending.current) {
+          pushPending.current = false;
+
+          if (!accessToken || settings?.googleDriveAutoSyncEnabled === false) {
+            await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
+            continue;
+          }
+
+          try {
+            const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
+            if (!savedPassword) {
+              await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
+              continue;
+            }
+
+            const isDirty = await AsyncStorage.getItem('nexus_sync_dirty');
+            if (isDirty === 'true') {
+              console.log('Pending offline changes detected. Running full cloud sync...');
+              const success = await performDriveSync(
+                accessToken,
+                savedPassword,
+                (msg) => console.log('Queued dirty sync:', msg)
+              );
+              if (success) {
+                await reloadMergedAppData();
+              }
+            } else {
+              console.log('Starting silent background cloud push...');
+              await performDrivePush(accessToken, savedPassword);
+              console.log('Silent background cloud push completed.');
+            }
+          } catch (err: any) {
+            await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
+            if (err.message === 'SECURE_STORE_LOCKED') {
+              console.log('SecureStore locked during background push, aborting cleanly.');
+            } else {
+              console.log('Silent background cloud push failed:', err);
+            }
+          }
         }
       } finally {
         pushInFlight.current = false;
         setIsSyncing(false);
       }
+    })();
+
+    pushPromise.current = pushTask;
+    try {
+      await pushTask;
+    } finally {
+      if (pushPromise.current === pushTask) {
+        pushPromise.current = null;
+      }
     }
+  };
+
+  const handleExternalDataApplied = async (): Promise<void> => {
+    await reloadMergedAppData();
+  };
+
+  const handleTrainingTemplateOrderChange = async (orderedIds: string[]): Promise<void> => {
+    if (!settings) {
+      throw new Error('Settings unavailable while saving training template order.');
+    }
+
+    const updatedSettings: UserSettings = {
+      ...settings,
+      trainingTemplateOrder: orderedIds,
+    };
+    await saveSettingsStrict(updatedSettings);
+    setSettings(updatedSettings);
+    await handleCloudAutoPush();
   };
 
   // Fix B: Triggered when user toggles Auto-Sync ON in settings.
@@ -261,10 +329,7 @@ export default function App() {
       if (savedPassword) {
         const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Auto-sync toggle sync:', msg));
         if (success) {
-          const storedSettings = await loadSettings();
-          const storedLogs = await loadLogs();
-          setSettings(storedSettings);
-          setLogs(storedLogs);
+          await reloadMergedAppData();
           console.log('Auto-sync enabled: immediate sync completed.');
         }
       }
@@ -281,10 +346,7 @@ export default function App() {
   // is enabled, pushes the cleaned data (with cleared tombstones) to the cloud
   // FIRST, followed by a full pull-merge-push sync to safely integrate other devices.
   const handleImportComplete = async () => {
-    const storedSettings = await loadSettings();
-    const storedLogs = await loadLogs();
-    setSettings(storedSettings);
-    setLogs(storedLogs);
+    const { settings: storedSettings } = await reloadMergedAppData();
     console.log('Import complete: React state reloaded from AsyncStorage.');
 
     if (accessToken && storedSettings?.googleDriveAutoSyncEnabled !== false) {
@@ -299,10 +361,7 @@ export default function App() {
           await performDriveSync(accessToken, savedPwd);
           
           // Reload to pick up any merged data from the pull
-          const postSyncSettings = await loadSettings();
-          const postSyncLogs = await loadLogs();
-          setSettings(postSyncSettings);
-          setLogs(postSyncLogs);
+          await reloadMergedAppData();
           await AsyncStorage.removeItem('nexus_sync_dirty');
         } catch (err) {
           console.log('Post-import sync failed (will retry on next startup):', err);
@@ -688,6 +747,9 @@ export default function App() {
             }} 
             initialCommand={ironCommand}
             onCloudAutoPush={handleCloudAutoPush}
+            templateOrder={settings.trainingTemplateOrder}
+            onTemplateOrderChange={handleTrainingTemplateOrderChange}
+            dataRevision={trainingDataRevision}
           />
         ) : (
           <>
@@ -757,6 +819,7 @@ export default function App() {
           onSave={handleSaveSettings}
           onAutoSyncEnabled={handleAutoSyncEnabled}
           onImportComplete={handleImportComplete}
+          onExternalDataApplied={handleExternalDataApplied}
         />
 
         {/* Custom Obsidian Celebration Modal */}

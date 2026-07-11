@@ -7,21 +7,41 @@ export interface Tombstone {
   deletedAt: number; // Unix timestamp in ms
 }
 
+export async function loadTombstonesStrict(): Promise<Tombstone[]> {
+  const raw = await AsyncStorage.getItem(TOMBSTONES_KEY);
+  if (!raw) return [];
+
+  const parsed: unknown = JSON.parse(raw);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every(item =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as Tombstone).id === 'string' &&
+      Number.isFinite((item as Tombstone).deletedAt)
+    )
+  ) {
+    throw new Error('Invalid tombstone storage payload.');
+  }
+  return parsed as Tombstone[];
+}
+
 export async function loadTombstones(): Promise<Tombstone[]> {
   try {
-    const raw = await AsyncStorage.getItem(TOMBSTONES_KEY);
-    if (raw) {
-      return JSON.parse(raw);
-    }
+    return await loadTombstonesStrict();
   } catch (e) {
     console.error('Failed to load tombstones:', e);
+    return [];
   }
-  return [];
+}
+
+export async function saveTombstonesStrict(tombstones: Tombstone[]): Promise<void> {
+  await AsyncStorage.setItem(TOMBSTONES_KEY, JSON.stringify(tombstones));
 }
 
 export async function saveTombstones(tombstones: Tombstone[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(TOMBSTONES_KEY, JSON.stringify(tombstones));
+    await saveTombstonesStrict(tombstones);
   } catch (e) {
     console.error('Failed to save tombstones:', e);
   }

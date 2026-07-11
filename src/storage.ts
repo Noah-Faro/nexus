@@ -1,5 +1,5 @@
 import { DrinkLog, UserSettings, DayProgress } from './types';
-import { loadFromStorage, saveToStorage } from './utils';
+import { loadFromStorage, saveToStorage, saveToStorageStrict } from './utils';
 
 const SETTINGS_KEY = '@obsidian_water_tracker_settings';
 const LOGS_KEY = '@obsidian_water_tracker_logs';
@@ -57,6 +57,14 @@ export async function saveSettings(settings: UserSettings): Promise<void> {
     updatedAt: new Date().toISOString()
   };
   return saveToStorage<UserSettings>(SETTINGS_KEY, updatedSettings);
+}
+
+export async function saveSettingsStrict(settings: UserSettings): Promise<void> {
+  const updatedSettings = {
+    ...settings,
+    updatedAt: new Date().toISOString()
+  };
+  return saveToStorageStrict<UserSettings>(SETTINGS_KEY, updatedSettings);
 }
 
 export async function loadLogs(): Promise<DrinkLog[]> {

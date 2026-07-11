@@ -266,6 +266,8 @@ export interface CoachOptions {
   incrementKg?: number;
   primaryGoal?: 'hypertrophy' | 'strength';
   volumeSnapshot?: import('./trainingTypes').VolumeStateSnapshot;
+  rpeEnabled?: boolean;
+  targetReps?: number;
 }
 
 /**
@@ -278,13 +280,18 @@ export function suggestNextTarget(
   history: CoachSession[],
   options: CoachOptions = {},
 ): CoachResult {
-  let range = options.range ?? DEFAULT_REP_RANGE;
   let incrementKg = options.incrementKg ?? WEIGHT_STEP_KG;
 
-  if (options.primaryGoal === 'strength' && !options.range) {
-    range = { bottom: 4, top: 6 };
-  } else if (options.primaryGoal === 'hypertrophy' && !options.range) {
-    range = { bottom: 8, top: 12 };
+  let range = options.range;
+  if (!range) {
+    if (options.targetReps !== undefined) {
+      const spread = options.targetReps >= 10 ? 4 : (options.targetReps >= 6 ? 3 : 2);
+      range = { bottom: Math.max(1, options.targetReps - spread), top: options.targetReps };
+    } else if (options.primaryGoal === 'strength') {
+      range = { bottom: 4, top: 6 };
+    } else {
+      range = { bottom: 8, top: 12 };
+    }
   }
 
   // Use VolumeStateSnapshot if available for suggestions instead of fully scanning raw session history.
@@ -310,13 +317,23 @@ export function suggestNextTarget(
   }
 
   const last = sessions[0]!;
-  const lastWeight = sessionWeight(last);
-  const weights = last.sets.map(s => s.weightKg);
+
+  const actualWorkingSets = last.sets.filter(s => !s.isWarmup);
+  if (actualWorkingSets.length === 0) {
+    return {
+      targets: [{ weightKg: 20, reps: range.bottom }], // generic fallback
+      suggestion: undefined,
+      reasoning: "Only warmup sets were logged.",
+    };
+  }
+
+  const actualLastSession = { ...last, sets: actualWorkingSets };
+  const lastWeight = sessionWeight(actualLastSession);
+  const weights = actualWorkingSets.map(s => s.weightKg);
   const arch = detectArchitecture(weights);
 
   // Filter session.sets to only look at Working Sets
-  const workingSets = last.sets.filter((s, i) => {
-    if (s.isWarmup) return false;
+  const workingSets = actualWorkingSets.filter((s, i) => {
     if (arch === 'STRAIGHT') return true;
     if (arch === 'RAMP_UP') return s.weightKg === lastWeight;
     if (arch === 'TOP_SET_BACK_OFF') return s.weightKg === lastWeight;
@@ -327,7 +344,7 @@ export function suggestNextTarget(
 
   // Helper to generate targets based on whether the working sets progress
   const buildTargets = (newTopSetWeight: number | undefined, topSetBaseReps: number): SetTarget[] => {
-    return last.sets.map(s => {
+    return actualWorkingSets.map(s => {
       if (arch === 'STRAIGHT') {
         return {
           weightKg: newTopSetWeight !== undefined ? newTopSetWeight : lastWeight,
@@ -354,7 +371,7 @@ export function suggestNextTarget(
 
   // Intra-session RPE Coach Notes
   let coachNote: string | undefined;
-  const lowRpeSet = last.sets.find((s) => s.rpe !== undefined && s.rpe < 8);
+  const lowRpeSet = actualWorkingSets.find((s) => s.rpe !== undefined && s.rpe < 8);
   if (lowRpeSet) {
     coachNote = "RIR > 2 detected, aim for +2 reps next set";
   }
@@ -368,7 +385,7 @@ export function suggestNextTarget(
 
   if (topSetMastered && backOffsMaintained) {
     let newWeight = round1(lastWeight + incrementKg);
-    let reasoning = `Last time: ${describeSession(last)} — top set mastered and back-offs maintained. Go up to ${weightForTarget(newWeight)} for ${range.bottom} reps.`;
+    let reasoning = `Last time: ${describeSession(actualLastSession)} — top set mastered and back-offs maintained. Go up to ${weightForTarget(newWeight)} for ${range.bottom} reps.`;
 
     if (firstSet.reps >= range.top + 3) {
       const c1RM = calculateComposite1RM(firstSet.weightKg, firstSet.reps);
@@ -382,7 +399,7 @@ export function suggestNextTarget(
       if (newWeight <= lastWeight && incrementKg > 0) {
         newWeight = round1(lastWeight + incrementKg);
       } else if (newWeight > lastWeight + incrementKg) {
-        reasoning = `Last time: ${describeSession(last)} — Jump to ${weightForTarget(newWeight)} for ${range.bottom} reps to match your new estimated 1RM.`;
+        reasoning = `Last time: ${describeSession(actualLastSession)} — Jump to ${weightForTarget(newWeight)} for ${range.bottom} reps to match your new estimated 1RM.`;
       }
     }
 
@@ -398,15 +415,17 @@ export function suggestNextTarget(
   // Rule (b): stalled — below bottom of range two sessions running at same weight.
   if (sessions.length >= 2) {
     const prev = sessions[1]!;
-    const prevWeight = sessionWeight(prev);
-    const prevArch = detectArchitecture(prev.sets.map(s => s.weightKg));
-    const prevWorkingSets = prev.sets.filter((s) => {
+    const prevActualWorkingSets = prev.sets.filter(s => !s.isWarmup);
+    const prevActualSession = { ...prev, sets: prevActualWorkingSets };
+    const prevWeight = prevActualWorkingSets.length > 0 ? sessionWeight(prevActualSession) : 0;
+    const prevArch = detectArchitecture(prevActualWorkingSets.map(s => s.weightKg));
+    const prevWorkingSets = prevActualWorkingSets.filter((s) => {
       if (prevArch === 'STRAIGHT') return true;
       return s.weightKg === prevWeight;
     });
 
     const isGenuineFailure = (set: { reps: number; rpe?: number }) => {
-      return set.reps < range.bottom && (set.rpe === undefined || set.rpe >= 9);
+      return set.reps < range.bottom && (!options.rpeEnabled || set.rpe === undefined || set.rpe >= 9);
     };
 
     const belowLast = workingSets.some(isGenuineFailure);
@@ -434,7 +453,7 @@ export function suggestNextTarget(
         targets: buildTargets(deloadWeight, range.bottom),
         suggestion: { weightKg: deloadWeight, targetReps: range.bottom },
         reasoning:
-          `Last time: ${describeSession(last)} — missed target reps twice. ` +
+          `Last time: ${describeSession(actualLastSession)} — missed target reps twice. ` +
           (lastWeight === 0
             ? `Hold bodyweight and aim for ${range.bottom} solid reps.`
             : `Deload to ${weightForTarget(deloadWeight)} and aim for ${range.bottom} solid reps.`),
@@ -448,7 +467,7 @@ export function suggestNextTarget(
         targets: buildTargets(undefined, range.bottom),
         suggestion: { weightKg: lastWeight, targetReps: range.bottom },
         reasoning:
-          `Last time: ${describeSession(last)}. ` +
+          `Last time: ${describeSession(actualLastSession)}. ` +
           `Hold ${weightForTarget(lastWeight)} and aim for ${range.bottom} solid reps.`,
         positionNote,
         ...(coachNote ? { coachNote } : {})
@@ -463,7 +482,7 @@ export function suggestNextTarget(
     targets: buildTargets(undefined, targetReps),
     suggestion: { weightKg: lastWeight, targetReps },
     reasoning:
-      `Last time: ${describeSession(last)}. ` +
+      `Last time: ${describeSession(actualLastSession)}. ` +
       `Keep ${weightForTarget(lastWeight)} and push for ${targetReps} reps on your working sets.`,
     ...(coachNote ? { coachNote } : {})
   };

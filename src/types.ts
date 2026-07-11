@@ -18,6 +18,7 @@ export interface UserSettings {
   customGoal: number | null;  // manual target in ml (overrides automatic weight-based goal if set)
   useAutoGoal: boolean;       // whether to calculate goals automatically based on weight
   moduleOrder: string[];      // order of modules in the Vault
+  trainingTemplateOrder?: string[]; // optional for backward compatibility with existing settings and backups
   customLiquids?: Record<string, LiquidConfig>; // user-defined drinks
   wakeTime?: string;          // Wakeup time in "HH:MM", default "07:00"
   sleepTime?: string;         // Sleep time in "HH:MM", default "22:00"
@@ -26,6 +27,7 @@ export interface UserSettings {
   decafPrefs?: Record<string, boolean>; // decaf preferences dictionary
   googleDriveAutoSyncEnabled?: boolean; // toggle auto-sync on startup
   primaryGoal?: 'hypertrophy' | 'strength'; // training goal
+  rpeEnabled?: boolean;               // toggle subjective RPE tracking in workouts
   trainingAge?: 'novice' | 'intermediate' | 'advanced'; // user's training experience
   updatedAt?: string;                 // ISO timestamp of when settings were last saved
 }

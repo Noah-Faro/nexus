@@ -8,10 +8,13 @@ import { WorkoutSession, LoggedSet, TemplateExercise, Exercise, ExerciseDefaults
 import ExercisePickerModal from './ExercisePickerModal';
 import { generateId, getExerciseById } from '../utils';
 import StepperInput from './StepperInput';
+import IntegerSlider from './IntegerSlider';
 import CoachCard from './CoachCard';
 import { AppAlertButton } from './AppAlertModal';
 import { saveActiveSession } from '../trainingStorage';
 import { getActiveGymProfile } from '../gymStorage';
+import { loadSettings } from '../storage';
+import { UserSettings } from '../types';
 
 const RPE_VALUES = [5, 6, 7, 8, 9, 10] as const;
 
@@ -61,12 +64,15 @@ export default function TrainingSessionView({ session, templateExercises, custom
   const [currentWeight, setCurrentWeight] = useState(20);
   const [currentReps, setCurrentReps] = useState(8);
   const [currentRpe, setCurrentRpe] = useState(8);
+  const [logRpe, setLogRpe] = useState(false);
   const [isWarmup, setIsWarmup] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [gymProfile, setGymProfile] = useState<any>(null);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
 
   useEffect(() => {
     getActiveGymProfile().then(setGymProfile);
+    loadSettings().then(setSettings);
   }, []);
 
   const activeTemplateEx = activeExerciseIndex >= 0 && activeExerciseIndex < sessionExercises.length
@@ -84,7 +90,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
       if (prevSets && prevSets.length > 0) {
         const lastSet = prevSets[prevSets.length - 1];
         setCurrentWeight(lastSet.weight);
-        setCurrentReps(lastSet.reps);
+        setCurrentReps(activeTemplateEx?.targetReps || lastSet.reps);
         setCurrentRpe(lastSet.rpe || 8);
       } else {
         const defaults = exerciseDefaults[activeExDef.id];
@@ -94,7 +100,8 @@ export default function TrainingSessionView({ session, templateExercises, custom
           setCurrentRpe(8);
         } else {
           // Fallback generic defaults
-          setCurrentWeight(activeExDef.equipment === 'bodyweight' ? 0 : 20);
+          const isDB = activeExDef.equipment === 'dumbbell';
+          setCurrentWeight(activeExDef.equipment === 'bodyweight' ? 0 : (isDB ? 10 : 20));
           setCurrentReps(10);
           setCurrentRpe(8);
         }
@@ -141,7 +148,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
       weight: currentWeight,
       weightUnit: activeUnit,
       reps: currentReps,
-      rpe: isWarmup ? undefined : currentRpe,
+      rpe: (!logRpe || isWarmup) ? undefined : currentRpe,
       isWarmup,
       timestamp: Date.now(),
       estimated1RM: Math.round(currentWeight * (1 + currentReps / 30))
@@ -305,6 +312,9 @@ export default function TrainingSessionView({ session, templateExercises, custom
               history={history}
               incrementKg={incrementStep}
               excludeSessionId={session.id}
+              targetReps={tEx.targetReps}
+              rpeEnabled={settings?.rpeEnabled}
+              primaryGoal={settings?.primaryGoal}
             />
 
             {/* Completed Sets */}
@@ -382,35 +392,36 @@ export default function TrainingSessionView({ session, templateExercises, custom
                 </View>
               </View>
 
-              {/* RPE — row of numbered circle buttons (5-10) */}
+              {/* RPE Switch & Slider */}
               {!isWarmup && exDef.trackingType !== 'time' && exDef.trackingType !== 'time_distance' && (
                 <View style={styles.rpeSection}>
-                  <View style={styles.rpeLabelRow}>
-                    <Text style={styles.inputLabel}>RPE</Text>
-                    <TouchableOpacity onPress={showRpeInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Info size={14} color={theme.colors.textMuted} />
-                    </TouchableOpacity>
+                  <View style={styles.inputRow}>
+                    <View style={styles.rpeLabelRow}>
+                      <Text style={[styles.inputLabel, { minWidth: 'auto' }]}>Log RPE</Text>
+                      <TouchableOpacity onPress={showRpeInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Info size={14} color={theme.colors.textMuted} />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.inputControl}>
+                      <Switch
+                        value={logRpe}
+                        onValueChange={(val) => {
+                          Haptics.selectionAsync();
+                          setLogRpe(val);
+                          if (val) setIsWarmup(false);
+                        }}
+                        trackColor={{ false: theme.colors.surfaceMuted, true: '#FF9F0A' }}
+                      />
+                    </View>
                   </View>
-                  <View style={styles.rpeRow}>
-                    {RPE_VALUES.map((val) => {
-                      const isSelected = currentRpe === val;
-                      return (
-                        <TouchableOpacity
-                          key={val}
-                          style={[styles.rpeCircle, isSelected && styles.rpeCircleSelected]}
-                          onPress={() => {
-                            Haptics.selectionAsync();
-                            setCurrentRpe(val);
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.rpeCircleText, isSelected && styles.rpeCircleTextSelected]}>
-                            {val}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  {logRpe && (
+                    <IntegerSlider 
+                      min={5} 
+                      max={10} 
+                      value={currentRpe} 
+                      onChange={setCurrentRpe} 
+                    />
+                  )}
                 </View>
               )}
 
@@ -423,6 +434,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
                     onValueChange={(val) => {
                       Haptics.selectionAsync();
                       setIsWarmup(val);
+                      if (val) setLogRpe(false);
                     }}
                     trackColor={{ false: theme.colors.surfaceMuted, true: '#FF9F0A' }}
                   />

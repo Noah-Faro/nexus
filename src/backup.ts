@@ -273,6 +273,15 @@ export async function importVaultBackupFromString(fileStr: string, password: str
     finalSettings = { ...remoteSettings };
   }
 
+  // Legacy backups predate template ordering. Preserve the current local order
+  // when the selected settings payload does not contain a valid order array.
+  if (
+    !Array.isArray(finalSettings.trainingTemplateOrder) &&
+    Array.isArray(localSettings.trainingTemplateOrder)
+  ) {
+    finalSettings.trainingTemplateOrder = [...localSettings.trainingTemplateOrder];
+  }
+
   // Ensure custom liquids and decaf preferences are merged from both sides
   finalSettings.customLiquids = {
     ...localSettings.customLiquids,

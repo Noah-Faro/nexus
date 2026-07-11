@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Modal, Animated } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Play, ChevronLeft, BarChart2, List, Plus, Settings, Edit2 } from 'lucide-react-native';
+import { ChevronLeft, Settings, X } from 'lucide-react-native';
 import { theme } from '../theme';
 import { WorkoutTemplate, WorkoutSession, Exercise, ExerciseDefaults } from '../trainingTypes';
 import { generateId } from '../utils';
-import { EXERCISE_LIBRARY } from '../exerciseLibrary';
 import { loadTemplates, saveTemplates, loadWorkoutSessions, saveWorkoutSessions, loadCustomExercises, loadExerciseDefaults, loadActiveSession, saveActiveSession } from '../trainingStorage';
-import { recordDeletion } from '../tombstones';
+import { loadTombstonesStrict, recordDeletion, saveTombstonesStrict } from '../tombstones';
 
 import TrainingSessionView from './TrainingSessionView';
 import TrainingHistory from './TrainingHistory';
@@ -15,17 +14,56 @@ import TrainingDashboard from './TrainingDashboard';
 import TrainingSettings from './TrainingSettings';
 import TemplateEditorSheet from './TemplateEditorSheet';
 import AppAlertModal, { AppAlertButton } from './AppAlertModal';
+import ReorderableTemplateList, { ReorderableTemplateSkeleton } from './ReorderableTemplateList';
 
-// Child components we'll build later
-// import TemplateList from './TemplateList';
+export function reconcileTemplateOrder(
+  templates: WorkoutTemplate[],
+  savedOrder?: string[]
+): WorkoutTemplate[] {
+  if (!savedOrder) return templates;
+
+  const templatesById = new Map(templates.map(template => [template.id, template]));
+  const includedIds = new Set<string>();
+  const orderedTemplates: WorkoutTemplate[] = [];
+
+  savedOrder.forEach(id => {
+    if (includedIds.has(id)) return;
+    const template = templatesById.get(id);
+    if (!template) return;
+    includedIds.add(id);
+    orderedTemplates.push(template);
+  });
+
+  templates.forEach(template => {
+    if (includedIds.has(template.id)) return;
+    includedIds.add(template.id);
+    orderedTemplates.push(template);
+  });
+
+  return orderedTemplates;
+}
+
+function hasSameTemplateOrder(left: WorkoutTemplate[], right: WorkoutTemplate[]): boolean {
+  return left.length === right.length && left.every((template, index) => template.id === right[index]?.id);
+}
 
 interface TrainingAppProps {
   onReturn: () => void;
   initialCommand?: string;
-  onCloudAutoPush?: () => void;
+  onCloudAutoPush?: () => void | Promise<void>;
+  templateOrder?: string[];
+  onTemplateOrderChange?: (ids: string[]) => Promise<void>;
+  dataRevision: number;
 }
 
-export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush }: TrainingAppProps) {
+export default function TrainingApp({
+  onReturn,
+  initialCommand,
+  onCloudAutoPush,
+  templateOrder,
+  onTemplateOrderChange,
+  dataRevision,
+}: TrainingAppProps) {
   const [activeView, setActiveView] = useState<'home' | 'session' | 'history' | 'dashboard'>('home');
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
@@ -37,19 +75,19 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
   
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const isLoadedRef = useRef(false);
+  const templatesRef = useRef<WorkoutTemplate[]>([]);
+  const sessionsRef = useRef<WorkoutSession[]>([]);
+  const templatePersistenceInFlightRef = useRef(false);
+  const trainingMutationInFlightRef = useRef(0);
+  const trainingMutationRevisionRef = useRef(0);
+  const pendingTrainingReloadRef = useRef(false);
+  const initialLoadInFlightRef = useRef(true);
+  const lastDataRevisionRef = useRef(dataRevision);
+  const latestDataRevisionRef = useRef(dataRevision);
+  latestDataRevisionRef.current = dataRevision;
+  const templateOrderRef = useRef(templateOrder);
+  templateOrderRef.current = templateOrder;
   const [isLoading, setIsLoading] = useState(true);
-  const skeletonAnim = useRef(new Animated.Value(0.4)).current;
-
-  useEffect(() => {
-    if (isLoading) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(skeletonAnim, { toValue: 0.8, duration: 800, useNativeDriver: true }),
-          Animated.timing(skeletonAnim, { toValue: 0.4, duration: 800, useNativeDriver: true })
-        ])
-      ).start();
-    }
-  }, [isLoading, skeletonAnim]);
 
   // Custom alert modal state
   const [alertConfig, setAlertConfig] = useState<{
@@ -73,16 +111,104 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
     });
   };
 
+  function beginTrainingMutation(): void {
+    trainingMutationInFlightRef.current += 1;
+    trainingMutationRevisionRef.current += 1;
+  }
+
+  function finishTrainingMutation(): void {
+    trainingMutationInFlightRef.current = Math.max(0, trainingMutationInFlightRef.current - 1);
+    if (trainingMutationInFlightRef.current === 0) {
+      flushPendingTrainingReload();
+    }
+  }
+
+  async function reloadTrainingDataAfterMerge(): Promise<void> {
+    if (initialLoadInFlightRef.current || trainingMutationInFlightRef.current > 0) {
+      pendingTrainingReloadRef.current = true;
+      return;
+    }
+
+    while (true) {
+      const mutationRevisionAtStart = trainingMutationRevisionRef.current;
+      const dataRevisionAtStart = latestDataRevisionRef.current;
+      const [loadedTemplates, loadedSessions, loadedCustomExercises, loadedExerciseDefaults] = await Promise.all([
+        loadTemplates(),
+        loadWorkoutSessions(),
+        loadCustomExercises(),
+        loadExerciseDefaults(),
+      ]);
+
+      if (initialLoadInFlightRef.current || trainingMutationInFlightRef.current > 0) {
+        pendingTrainingReloadRef.current = true;
+        return;
+      }
+      if (
+        trainingMutationRevisionRef.current !== mutationRevisionAtStart ||
+        latestDataRevisionRef.current !== dataRevisionAtStart
+      ) {
+        continue;
+      }
+
+      const orderedTemplates = reconcileTemplateOrder(loadedTemplates, templateOrderRef.current);
+      pendingTrainingReloadRef.current = false;
+      templatesRef.current = orderedTemplates;
+      sessionsRef.current = loadedSessions;
+      setTemplates(orderedTemplates);
+      setSessions(loadedSessions);
+      setCustomExercises(loadedCustomExercises);
+      setExerciseDefaults(loadedExerciseDefaults);
+      return;
+    }
+  }
+
+  function flushPendingTrainingReload(): void {
+    if (
+      !pendingTrainingReloadRef.current ||
+      initialLoadInFlightRef.current ||
+      trainingMutationInFlightRef.current > 0
+    ) return;
+    pendingTrainingReloadRef.current = false;
+    void reloadTrainingDataAfterMerge().catch(error => {
+      console.error('Failed to reload merged training data', error);
+      triggerAlert('Sync Refresh Error', 'Cloud data was saved, but Training could not refresh. Reopen Training to retry.');
+    });
+  }
+
   useEffect(() => {
     async function loadData() {
-      const loadedTemplates = await loadTemplates();
-      const loadedSessions = await loadWorkoutSessions();
-      setTemplates(loadedTemplates);
-      setSessions(loadedSessions);
-      setCustomExercises(await loadCustomExercises());
-      setExerciseDefaults(await loadExerciseDefaults());
-      
-      const cachedSession = await loadActiveSession();
+      const dataRevisionAtStart = latestDataRevisionRef.current;
+      const [
+        loadedTemplates,
+        loadedSessions,
+        loadedCustomExercises,
+        loadedExerciseDefaults,
+        cachedSession,
+      ] = await Promise.all([
+        loadTemplates(),
+        loadWorkoutSessions(),
+        loadCustomExercises(),
+        loadExerciseDefaults(),
+        loadActiveSession(),
+      ]);
+
+      initialLoadInFlightRef.current = false;
+      if (
+        latestDataRevisionRef.current !== dataRevisionAtStart ||
+        pendingTrainingReloadRef.current
+      ) {
+        pendingTrainingReloadRef.current = false;
+        await reloadTrainingDataAfterMerge();
+      } else {
+        const orderedTemplates = reconcileTemplateOrder(loadedTemplates, templateOrderRef.current);
+        templatesRef.current = orderedTemplates;
+        sessionsRef.current = loadedSessions;
+        setTemplates(orderedTemplates);
+        setSessions(loadedSessions);
+        setCustomExercises(loadedCustomExercises);
+        setExerciseDefaults(loadedExerciseDefaults);
+      }
+
       if (cachedSession && !cachedSession.endTime) {
         setActiveSession(cachedSession);
         setActiveView('session');
@@ -90,16 +216,16 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
         if (initialCommand === 'history') {
           setActiveView('history');
         } else if (initialCommand.startsWith('start ')) {
-          const tName = initialCommand.substring(6).toLowerCase();
-          const found = loadedTemplates.find(t => t.name.toLowerCase() === tName);
+          const templateName = initialCommand.substring(6).toLowerCase();
+          const found = templatesRef.current.find(template => template.name.toLowerCase() === templateName);
           if (found) {
-            handleStartSession(found, loadedSessions.length);
+            handleStartSession(found, sessionsRef.current.length);
           } else {
-            triggerAlert("Template Not Found", `Could not find template matching "${tName}"`);
+            triggerAlert("Template Not Found", 'Could not find template matching "' + templateName + '"');
           }
         }
       }
-      
+
       setIsLoading(false);
 
       // Allow state updates to settle, then enable reactive cloud pushes
@@ -107,23 +233,55 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
         isLoadedRef.current = true;
       }, 500);
     }
-    loadData();
+    void loadData().catch(error => {
+      initialLoadInFlightRef.current = false;
+      console.error('Failed to load training data', error);
+      setIsLoading(false);
+      triggerAlert('Load Error', 'Training data could not be loaded. Reopen Training to retry.');
+    });
   }, [initialCommand]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (trainingMutationInFlightRef.current > 0) {
+      pendingTrainingReloadRef.current = true;
+      return;
+    }
+
+    const orderedTemplates = reconcileTemplateOrder(templatesRef.current, templateOrder);
+    if (hasSameTemplateOrder(templatesRef.current, orderedTemplates)) return;
+
+    templatesRef.current = orderedTemplates;
+    setTemplates(orderedTemplates);
+  }, [templateOrder, isLoading]);
+
+  useEffect(() => {
+    if (dataRevision === lastDataRevisionRef.current) return;
+    lastDataRevisionRef.current = dataRevision;
+    if (isLoading || initialLoadInFlightRef.current) {
+      pendingTrainingReloadRef.current = true;
+      return;
+    }
+    void reloadTrainingDataAfterMerge().catch(error => {
+      console.error('Failed to reload merged training data', error);
+      triggerAlert('Sync Refresh Error', 'Cloud data was saved, but Training could not refresh. Reopen Training to retry.');
+    });
+  }, [dataRevision]);
 
   useEffect(() => {
     if (isLoadedRef.current) {
       console.log('Training state change detected, auto-pushing to cloud...');
       onCloudAutoPush?.();
     }
-  }, [templates, sessions, customExercises, exerciseDefaults]);
+  }, [sessions, customExercises, exerciseDefaults]);
 
-  const handleStartSession = (template: WorkoutTemplate, customSessionCount?: number) => {
+  const handleStartSession = (template: WorkoutTemplate | null, customSessionCount?: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const count = customSessionCount !== undefined ? customSessionCount : sessions.length;
+    const count = customSessionCount !== undefined ? customSessionCount : sessionsRef.current.length;
     const newSession: WorkoutSession = {
       id: generateId(),
-      templateId: template.id,
-      templateName: template.name,
+      templateId: template?.id || 'empty-workout',
+      templateName: template?.name || 'Workout',
       startTime: Date.now(),
       sets: [],
       totalVolume: 0,
@@ -134,32 +292,38 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
   };
 
   const handleFinishSession = async (rawSession: WorkoutSession) => {
-    const sessionToSave = { ...rawSession };
-    if (!sessionToSave.endTime) {
-      sessionToSave.endTime = Date.now();
-      sessionToSave.durationMinutes = Math.round((sessionToSave.endTime - sessionToSave.startTime) / 60000);
-    }
-    
-    // Calculate total volume
-    let vol = 0;
-    sessionToSave.sets.forEach(s => { vol += (s.weight * s.reps); });
-    sessionToSave.totalVolume = vol;
-
-    const dedupedSessions = sessions.filter(s => s.id !== sessionToSave.id);
-    const newSessions = [sessionToSave, ...dedupedSessions];
-    
-    setSessions(newSessions);
+    beginTrainingMutation();
     try {
-      await saveWorkoutSessions(newSessions);
-    } catch (e) {
-      console.error("Failed to save session", e);
-      triggerAlert("Save Error", "Could not save workout session to device storage.");
-    }
+      const sessionToSave = { ...rawSession };
+      if (!sessionToSave.endTime) {
+        sessionToSave.endTime = Date.now();
+        sessionToSave.durationMinutes = Math.round((sessionToSave.endTime - sessionToSave.startTime) / 60000);
+      }
 
-    await saveActiveSession(null);
-    setActiveSession(null);
-    setActiveView('home');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Calculate total volume
+      let vol = 0;
+      sessionToSave.sets.forEach(s => { vol += (s.weight * s.reps); });
+      sessionToSave.totalVolume = vol;
+
+      const dedupedSessions = sessionsRef.current.filter(s => s.id !== sessionToSave.id);
+      const newSessions = [sessionToSave, ...dedupedSessions];
+      sessionsRef.current = newSessions;
+      setSessions(newSessions);
+
+      try {
+        await saveWorkoutSessions(newSessions);
+      } catch (e) {
+        console.error("Failed to save session", e);
+        triggerAlert("Save Error", "Could not save workout session to device storage.");
+      }
+
+      await saveActiveSession(null);
+      setActiveSession(null);
+      setActiveView('home');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } finally {
+      finishTrainingMutation();
+    }
   };
 
   const cancelSession = () => {
@@ -181,100 +345,189 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
     );
   };
 
-  // Minimal Home View (Template Picker)
-  const handleSaveTemplate = async (template: WorkoutTemplate) => {
-    const existingIndex = templates.findIndex(t => t.id === template.id);
-    let updatedTemplates;
-    if (existingIndex >= 0) {
-      updatedTemplates = [...templates];
-      updatedTemplates[existingIndex] = template;
-    } else {
-      updatedTemplates = [...templates, template];
-    }
-    setTemplates(updatedTemplates);
+  const persistTemplateMutation = async (
+    nextTemplates: WorkoutTemplate[],
+    previousTemplates: WorkoutTemplate[],
+    errorTitle: string,
+    errorMessage: string
+  ): Promise<boolean> => {
+    if (templatePersistenceInFlightRef.current) return false;
+
+    templatePersistenceInFlightRef.current = true;
+    beginTrainingMutation();
+    templatesRef.current = nextTemplates;
+    setTemplates(nextTemplates);
+
     try {
-      await saveTemplates(updatedTemplates);
-    } catch (e) {
-      console.error("Failed to save template", e);
-      triggerAlert("Save Error", "Could not save workout template.");
+      await saveTemplates(nextTemplates);
+      if (onTemplateOrderChange) {
+        await onTemplateOrderChange(nextTemplates.map(template => template.id));
+      } else {
+        await onCloudAutoPush?.();
+      }
+      return true;
+    } catch (error) {
+      console.error(errorMessage, error);
+      templatesRef.current = previousTemplates;
+      setTemplates(previousTemplates);
+
+      try {
+        await saveTemplates(previousTemplates);
+        if (onTemplateOrderChange) {
+          await onTemplateOrderChange(previousTemplates.map(template => template.id));
+        }
+      } catch (rollbackError) {
+        console.error('Failed to roll back workout template persistence', rollbackError);
+      }
+
+      triggerAlert(errorTitle, errorMessage);
+      return false;
+    } finally {
+      templatePersistenceInFlightRef.current = false;
+      finishTrainingMutation();
     }
   };
 
+  const handleSaveTemplate = async (template: WorkoutTemplate) => {
+    const previousTemplates = templatesRef.current;
+    const existingIndex = previousTemplates.findIndex(t => t.id === template.id);
+    let updatedTemplates: WorkoutTemplate[];
+    if (existingIndex >= 0) {
+      updatedTemplates = [...previousTemplates];
+      updatedTemplates[existingIndex] = template;
+    } else {
+      updatedTemplates = [...previousTemplates, template];
+    }
+
+    await persistTemplateMutation(
+      updatedTemplates,
+      previousTemplates,
+      'Save Error',
+      'Could not save workout template. Your previous templates were restored.'
+    );
+  };
+
   const handleDeleteTemplate = async (id: string) => {
-    await recordDeletion(id); // Finding #1: Track deletion for sync
-    const updatedTemplates = templates.filter(t => t.id !== id);
-    setTemplates(updatedTemplates);
+    if (templatePersistenceInFlightRef.current) return;
+
+    const previousTemplates = templatesRef.current;
+    const updatedTemplates = previousTemplates.filter(template => template.id !== id);
+    if (updatedTemplates.length === previousTemplates.length) return;
+
+    templatePersistenceInFlightRef.current = true;
+    beginTrainingMutation();
+    let previousTombstones: Awaited<ReturnType<typeof loadTombstonesStrict>> | null = null;
+    let mutationStarted = false;
+
     try {
+      previousTombstones = await loadTombstonesStrict();
+      mutationStarted = true;
+      templatesRef.current = updatedTemplates;
+      setTemplates(updatedTemplates);
+
       await saveTemplates(updatedTemplates);
-    } catch (e) {
-      console.error("Failed to delete template", e);
-      triggerAlert("Delete Error", "Could not delete workout template.");
+      const nextTombstones = previousTombstones.map(tombstone => ({ ...tombstone }));
+      const existingTombstone = nextTombstones.find(tombstone => tombstone.id === id);
+      if (existingTombstone) {
+        existingTombstone.deletedAt = Date.now();
+      } else {
+        nextTombstones.push({ id, deletedAt: Date.now() });
+      }
+      await saveTombstonesStrict(nextTombstones);
+
+      if (onTemplateOrderChange) {
+        await onTemplateOrderChange(updatedTemplates.map(template => template.id));
+      } else {
+        await onCloudAutoPush?.();
+      }
+    } catch (error) {
+      console.error('Failed to delete workout template', error);
+      templatesRef.current = previousTemplates;
+      setTemplates(previousTemplates);
+
+      if (mutationStarted && previousTombstones) {
+        try {
+          await saveTemplates(previousTemplates);
+          await saveTombstonesStrict(previousTombstones);
+          if (onTemplateOrderChange) {
+            await onTemplateOrderChange(previousTemplates.map(template => template.id));
+          }
+        } catch (rollbackError) {
+          console.error('Failed to roll back workout template deletion', rollbackError);
+        }
+      }
+
+      triggerAlert('Delete Error', 'Could not delete workout template. Your previous templates were restored.');
+    } finally {
+      templatePersistenceInFlightRef.current = false;
+      finishTrainingMutation();
+    }
+  };
+
+  const handleReorderTemplates = async (updatedTemplates: WorkoutTemplate[]): Promise<boolean> => {
+    const previousTemplates = templatesRef.current;
+    if (hasSameTemplateOrder(previousTemplates, updatedTemplates)) return true;
+
+    return persistTemplateMutation(
+      updatedTemplates,
+      previousTemplates,
+      'Reorder Error',
+      'Could not save the new workout order. Your previous order was restored.'
+    );
+  };
+
+  const handleCustomExercisesChange = (updated: Exercise[]): void => {
+    beginTrainingMutation();
+    try {
+      setCustomExercises(updated);
+    } finally {
+      finishTrainingMutation();
+    }
+  };
+
+  const handleTrainingSettingsClose = async (): Promise<void> => {
+    setSettingsVisible(false);
+    beginTrainingMutation();
+    try {
+      setExerciseDefaults(await loadExerciseDefaults());
+    } finally {
+      finishTrainingMutation();
     }
   };
 
   const renderHome = () => (
-    <ScrollView style={styles.content} contentContainerStyle={{ padding: theme.spacing.lg }}>
-      <Text style={styles.sectionTitle}>START WORKOUT</Text>
-      {templates.map(t => (
-        <View 
-          key={t.id} 
-          style={[styles.templateCard, { borderLeftColor: t.color || theme.colors.accent }]}
-        >
-          <View style={{ flex: 1, marginRight: 16 }}>
-            <Text style={styles.templateName}>{t.name}</Text>
-            <Text style={styles.templateSummary}>{t.exercises.length} Exercises</Text>
-          </View>
-          <TouchableOpacity 
-            style={{ padding: 8, marginRight: 8 }} 
-            onPress={() => {
-              setEditingTemplate(t);
-              setTemplateEditorVisible(true);
-            }}
-          >
-            <Edit2 size={20} color={theme.colors.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.startBtn, { backgroundColor: t.color || theme.colors.accent }]} 
-            onPress={() => handleStartSession(t)}
-          >
-            <Play fill="#000" size={16} color="#000" />
-          </TouchableOpacity>
-        </View>
-      ))}
-
-      <TouchableOpacity 
-        style={styles.createTemplateBtn} 
-        onPress={() => {
-          setEditingTemplate(null);
-          setTemplateEditorVisible(true);
-        }}
-      >
-        <Plus size={20} color={theme.colors.text} />
-        <Text style={styles.createTemplateText}>Create Template</Text>
-      </TouchableOpacity>
-
-      <View style={styles.statsRow}>
-        <TouchableOpacity style={styles.statCard} onPress={() => setActiveView('history')}>
-          <List size={24} color={theme.colors.textMuted} />
-          <Text style={styles.statCardText}>History</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.statCard} onPress={() => setActiveView('dashboard')}>
-          <BarChart2 size={24} color={theme.colors.textMuted} />
-          <Text style={styles.statCardText}>Progress</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+    <ReorderableTemplateList
+      templates={templates}
+      onStart={handleStartSession}
+      onEdit={template => {
+        setEditingTemplate(template);
+        setTemplateEditorVisible(true);
+      }}
+      onReorder={handleReorderTemplates}
+      onCreate={() => {
+        setEditingTemplate(null);
+        setTemplateEditorVisible(true);
+      }}
+      onOpenHistory={() => setActiveView('history')}
+      onOpenProgress={() => setActiveView('dashboard')}
+    />
   );
 
   const handleDeleteSession = async (sessionId: string) => {
-    await recordDeletion(sessionId); // Finding #1: Track deletion for sync
-    const updated = sessions.filter(s => s.id !== sessionId);
-    setSessions(updated);
+    beginTrainingMutation();
     try {
-      await saveWorkoutSessions(updated);
-    } catch (e) {
-      console.error("Failed to delete session", e);
-      triggerAlert("Delete Error", "Could not delete workout session.");
+      await recordDeletion(sessionId); // Finding #1: Track deletion for sync
+      const updated = sessionsRef.current.filter(s => s.id !== sessionId);
+      sessionsRef.current = updated;
+      setSessions(updated);
+      try {
+        await saveWorkoutSessions(updated);
+      } catch (e) {
+        console.error("Failed to delete session", e);
+        triggerAlert("Delete Error", "Could not delete workout session.");
+      }
+    } finally {
+      finishTrainingMutation();
     }
   };
 
@@ -291,33 +544,7 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
             <Settings size={22} color={theme.colors.accent} />
           </View>
         </View>
-        <ScrollView style={styles.content} contentContainerStyle={{ padding: theme.spacing.lg }}>
-          <Text style={styles.sectionTitle}>START WORKOUT</Text>
-          {[1, 2, 3].map(i => (
-            <Animated.View 
-              key={i} 
-              style={[
-                styles.templateCard, 
-                { borderLeftColor: theme.colors.border, opacity: skeletonAnim }
-              ]}
-            >
-              <View style={{ flex: 1, marginRight: 16 }}>
-                <View style={{ width: '60%', height: 20, backgroundColor: theme.colors.border, borderRadius: 4, marginBottom: 8 }} />
-                <View style={{ width: '40%', height: 16, backgroundColor: theme.colors.border, borderRadius: 4 }} />
-              </View>
-              <View style={{ width: 32, height: 32, backgroundColor: theme.colors.border, borderRadius: 8, marginRight: 8 }} />
-              <View style={[styles.startBtn, { backgroundColor: theme.colors.border, width: 32, height: 32 }]} />
-            </Animated.View>
-          ))}
-          <Animated.View style={[styles.createTemplateBtn, { opacity: skeletonAnim }]}>
-            <View style={{ width: 20, height: 20, backgroundColor: theme.colors.border, borderRadius: 10 }} />
-            <View style={{ width: 120, height: 20, backgroundColor: theme.colors.border, borderRadius: 4, marginLeft: 8 }} />
-          </Animated.View>
-          <Animated.View style={[styles.statsRow, { opacity: skeletonAnim }]}>
-            <View style={[styles.statCard, { height: 80, backgroundColor: theme.colors.surface }]} />
-            <View style={[styles.statCard, { height: 80, backgroundColor: theme.colors.surface }]} />
-          </Animated.View>
-        </ScrollView>
+        <ReorderableTemplateSkeleton />
       </View>
     );
   }
@@ -349,10 +576,9 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
             setActiveView('home');
           }
         }} activeOpacity={0.7}>
-          <ChevronLeft size={28} color={theme.colors.accent} style={{ marginLeft: -8 }} />
-          <Text style={styles.backText}>
-            {activeView === 'home' ? 'Vault' : 'Back'}
-          </Text>
+          <View style={{ backgroundColor: theme.colors.surfaceElevated, borderRadius: 15, padding: 4 }}>
+            <X size={20} color={theme.colors.textMuted} />
+          </View>
         </TouchableOpacity>
         
         <Text style={styles.headerTitle} numberOfLines={1}>
@@ -379,7 +605,7 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
            exerciseDefaults={exerciseDefaults}
            history={sessions}
            onFinishSession={handleFinishSession}
-           onCustomExercisesChange={setCustomExercises}
+           onCustomExercisesChange={handleCustomExercisesChange}
            triggerAlert={triggerAlert}
          />
       )}
@@ -403,12 +629,8 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
         <Modal visible={settingsVisible} animationType="slide" transparent={true}>
           <TrainingSettings 
             customExercises={customExercises}
-            onCustomExercisesChange={setCustomExercises}
-            onClose={() => {
-              setSettingsVisible(false);
-              // Refresh defaults when closing settings
-              loadExerciseDefaults().then(setExerciseDefaults);
-            }} 
+            onCustomExercisesChange={handleCustomExercisesChange}
+            onClose={handleTrainingSettingsClose}
           />
         </Modal>
       )}
@@ -421,7 +643,7 @@ export default function TrainingApp({ onReturn, initialCommand, onCloudAutoPush 
           onSave={handleSaveTemplate}
           onDelete={handleDeleteTemplate}
           customExercises={customExercises}
-          onCustomExercisesChange={setCustomExercises}
+          onCustomExercisesChange={handleCustomExercisesChange}
         />
       )}
 
@@ -473,76 +695,4 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'flex-end',
   },
-  content: {
-    flex: 1,
-  },
-  sectionTitle: {
-    fontFamily: 'Outfit_600SemiBold',
-    fontSize: 14,
-    color: theme.colors.textMuted,
-    letterSpacing: 2,
-    marginBottom: 16,
-    marginTop: 8,
-  },
-  templateCard: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: theme.borderRadius.md,
-    padding: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    borderLeftWidth: 4,
-  },
-  templateName: {
-    fontFamily: 'Outfit_600SemiBold',
-    fontSize: 18,
-    color: theme.colors.text,
-    marginBottom: 4,
-  },
-  templateSummary: {
-    fontFamily: theme.typography.sans,
-    fontSize: 14,
-    color: theme.colors.textMuted,
-  },
-  startBtn: {
-    padding: 8,
-    borderRadius: 8,
-  },
-  createTemplateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderWidth: 2,
-    borderColor: theme.colors.border,
-    borderStyle: 'dashed',
-    borderRadius: theme.borderRadius.md,
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  createTemplateText: {
-    fontFamily: 'Outfit_600SemiBold',
-    color: theme.colors.text,
-    marginLeft: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 32,
-  },
-  statCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    padding: 20,
-    flex: 1,
-    marginHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statCardText: {
-    fontFamily: theme.typography.semibold,
-    color: theme.colors.text,
-    marginTop: 8,
-  }
 });
