@@ -1,4 +1,10 @@
 NEXUS/
+|-- plan/                    # Product roadmaps and detailed implementation phases
+|   |-- phases/              # PHASE0.md through PHASE12.md; sequential Stage 0-12 specifications
+|   |-- IDEAS.md             # State-of-the-art life-dashboard backlog
+|   |-- IDEASVERBOSE.md      # Extended ML research blueprint
+|   |-- PLAN.md              # Deterministic-first implementation roadmap
+|   `-- V3.md                # Native data, lifestyle, ML, and Athena blueprint
 ├── .agents/                 # Collapsed: AI Agent skills, configurations, and reference guides
 ├── .claude/                 # Collapsed: Local Claude settings and active agent skills
 ├── .codex/                  # Collapsed: Codex system configuration file
@@ -51,7 +57,7 @@ NEXUS/
 │   ├── trainingTypes.ts     # Data structure type systems mapping training protocols
 │   ├── types.ts             # Global TypeScript type definitions
 │   ├── utils.ts             # Shared layout and math helper computations
-│   └── volumeReducer.ts     # Fatigue management script processing overall workout stress sets
+
 ├── .gitignore               # Excludes dependency and cache files from git version control
 ├── AGENTS.md                # Documentation listing active project agent behaviors
 ├── App.tsx                  # Main root React Native application rendering component entrypoint

@@ -83,13 +83,12 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
   segmentText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 13,
-    fontWeight: theme.typography.weight.medium,
     color: theme.colors.text,
   },
   activeSegmentText: {
     color: '#000000',
-    fontWeight: theme.typography.weight.semibold,
+    fontFamily: theme.typography.semibold,
   },
 });

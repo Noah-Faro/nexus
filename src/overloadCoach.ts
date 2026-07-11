@@ -18,12 +18,12 @@ export interface RepRange {
   top: number;
 }
 
-export interface SetTarget {
+interface SetTarget {
   weightKg: number;
   reps: number;
 }
 
-export interface CoachSuggestion {
+interface CoachSuggestion {
   weightKg: number;
   targetReps: number;
 }
@@ -43,7 +43,7 @@ export interface CoachResult {
   coachNote?: string;
 }
 
-export function calculateComposite1RM(weight: number, reps: number): number {
+function calculateComposite1RM(weight: number, reps: number): number {
   if (reps <= 1) return weight;
   const epley = weight * (1 + reps / 30);
   const brzycki = reps === 37 ? weight : weight * (36 / (37 - reps));
@@ -51,7 +51,7 @@ export function calculateComposite1RM(weight: number, reps: number): number {
   return (epley + brzycki + lombardi) / 3;
 }
 
-export function calculateWeightFromComposite(c1RM: number, targetReps: number): number {
+function calculateWeightFromComposite(c1RM: number, targetReps: number): number {
   if (targetReps <= 1) return c1RM;
   return c1RM / (1 + targetReps / 30);
 }
@@ -73,18 +73,18 @@ export const DEFAULT_REP_RANGE: RepRange = { bottom: 8, top: 12 };
 export const WEIGHT_STEP_KG = 2.5;
 
 /** Deload percentage suggested when stuck below the range. */
-export const DELOAD_PERCENT = 5;
+const DELOAD_PERCENT = 5;
 
 /**
  * Order-aware softening threshold. When the most recent session's position is
  * at least this many slots LATER than usual, under-performance does not count
  * as a deload strike.
  */
-export const ORDER_SLOT_THRESHOLD = 2;
+const ORDER_SLOT_THRESHOLD = 2;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-export function detectArchitecture(weights: number[]): 'STRAIGHT' | 'RAMP_UP' | 'TOP_SET_BACK_OFF' {
+function detectArchitecture(weights: number[]): 'STRAIGHT' | 'RAMP_UP' | 'TOP_SET_BACK_OFF' {
   if (weights.length <= 1) return 'STRAIGHT';
   
   const maxWeight = Math.max(...weights);
@@ -104,22 +104,22 @@ export function detectArchitecture(weights: number[]): 'STRAIGHT' | 'RAMP_UP' | 
 }
 
 /** Round to the nearest 0.1kg to avoid float noise like 42.49999. */
-export function round1(value: number): number {
+function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
 /** The working weight of a session = the max weight across its sets. */
-export function sessionWeight(session: CoachSession): number {
+function sessionWeight(session: CoachSession): number {
   return session.sets.reduce((max, set) => Math.max(max, set.weightKg), 0);
 }
 
 /** Lowest rep count in a session (its weakest set). */
-export function minReps(session: CoachSession): number {
+function minReps(session: CoachSession): number {
   return session.sets.reduce((min, set) => Math.min(min, set.reps), Infinity);
 }
 
 /** Compact "3×12 @ 40kg" / "3 sets @ 40kg (12, 10, 8)" style summary. */
-export function describeSession(session: CoachSession): string {
+function describeSession(session: CoachSession): string {
   if (session.sets.length === 0) return 'Empty session';
 
   const weights = session.sets.map(s => s.weightKg);
@@ -180,7 +180,7 @@ function weightForTarget(weight: number): string {
  * The exercise's "usual" position across its history = the statistical mode.
  * Ties are broken toward the most-recent session's position (index 0 = latest).
  */
-export function usualPosition(history: CoachSession[]): number | undefined {
+function usualPosition(history: CoachSession[]): number | undefined {
   const counts = new Map<number, number>();
   const firstSeenAt = new Map<number, number>();
   history.forEach((session, index) => {
@@ -488,33 +488,3 @@ export function suggestNextTarget(
   };
 }
 
-// ── Legacy compat: keep old export so nothing else breaks ────────────────────
-
-/** @deprecated Use suggestNextTarget + buildCoachHistory instead. */
-export function getOverloadSuggestion(
-  currentWeight: number,
-  currentReps: number,
-  previousSets?: LoggedSet[],
-): string {
-  if (!previousSets || previousSets.length === 0) {
-    return `Est 1RM: ${Math.round(currentWeight * (1 + currentReps / 30))}`;
-  }
-
-  const bestSet = previousSets.reduce(
-    (a, b) => (a.weight * a.reps > b.weight * b.reps ? a : b),
-    previousSets[0],
-  );
-
-  if (currentWeight > bestSet.weight) {
-    return 'New weight PR!';
-  } else if (currentWeight === bestSet.weight && currentReps > bestSet.reps) {
-    return 'New reps PR!';
-  } else if (currentWeight === bestSet.weight && currentReps === bestSet.reps) {
-    return 'Matching best set';
-  } else {
-    if (currentWeight === bestSet.weight && currentReps < bestSet.reps) {
-      return `Aim for ${bestSet.reps + 1} reps`;
-    }
-    return `Est 1RM: ${Math.round(currentWeight * (1 + currentReps / 30))}`;
-  }
-}

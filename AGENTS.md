@@ -25,7 +25,7 @@ If tasks are independent, you may spin up multiple subagents to speed up the wor
 - **Workflow:** Iterative feature expansion. Build, test, verify, and repeat.
 - **Design:** Always use the  UI/UX Pro Max skill (\ui-ux-pro-max).
 - **Function:** We are incorporating design and functionalities from a web dashboard project, but we stay with our local approach (ignore references to Vercel or Supabase, not relevant for our project).
-- **Structure:** The directory structure of this project can be found in @STRUCTURE.md. When creating new folders, please adjust this file accordingly
+- **Structure:** The directory structure of this project can be found in @STRUCTURE.md, such that there is no need to reread the entire project folder each time. When creating new folders, please adjust this file accordingly
 
 ## Subagent Routing Matrix
 - **Gemini Flash (Medium)/GPT 5.5/GPT 5.6 Luna:** UI tweaks, animations, styling changes, rapid CSS adjustments.

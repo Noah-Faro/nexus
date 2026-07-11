@@ -834,14 +834,13 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   unitBtnText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 13,
-    fontWeight: theme.typography.weight.medium,
     color: theme.colors.textMuted,
   },
   unitBtnTextActive: {
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.bold,
+    fontFamily: theme.typography.bold,
   },
   segmentedControl: {
     flexDirection: 'row',
@@ -864,14 +863,13 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   segmentBtnText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 14,
     color: theme.colors.textMuted,
-    fontWeight: theme.typography.weight.medium,
   },
   segmentBtnTextActive: {
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.semibold,
+    fontFamily: theme.typography.semibold,
   },
   footer: {
     padding: theme.spacing.lg,

@@ -28,7 +28,7 @@ const clientId = Platform.OS === 'ios' ? GOOGLE_IOS_CLIENT_ID : GOOGLE_WEB_CLIEN
 /**
  * Robust helper function to refresh the Google Drive access token using the stored refresh token.
  */
-export const refreshAccessToken = async (): Promise<string | null> => {
+const refreshAccessToken = async (): Promise<string | null> => {
   try {
     const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_STORAGE_KEY).catch(() => null);
     if (!refreshToken) {

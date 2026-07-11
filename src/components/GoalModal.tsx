@@ -78,9 +78,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   titleText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 22,
-    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
     marginBottom: theme.spacing.sm,
     textAlign: 'center',
@@ -111,17 +110,15 @@ const styles = StyleSheet.create({
     marginHorizontal: theme.spacing.sm,
   },
   statValue: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 17,
-    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
     marginBottom: 4,
   },
   statLabel: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 12,
     color: theme.colors.textSubtle,
-    fontWeight: theme.typography.weight.medium,
   },
   dismissBtn: {
     backgroundColor: theme.colors.text,
@@ -131,9 +128,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dismissBtnText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 16,
     color: '#000000',
-    fontWeight: theme.typography.weight.bold,
   },
 });

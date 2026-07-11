@@ -263,7 +263,7 @@ export default function CalendarHeatmap({ logs, settings }: CalendarHeatmapProps
                   
                   return (
                     <View key={idx} style={styles.barColumn}>
-                      <Text style={[styles.barValText, isCompliant && { color: theme.colors.accent, fontWeight: 'bold' }]}>
+                      <Text style={[styles.barValText, isCompliant && { color: theme.colors.accent, fontFamily: theme.typography.bold }]}>
                         {day.totalEffective > 0 ? `${(day.totalEffective / 1000).toFixed(1)}L` : '0'}
                       </Text>
                       
@@ -333,16 +333,14 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 22,
-    fontWeight: theme.typography.weight.bold,
     color: theme.colors.text,
     marginBottom: theme.spacing.md,
   },
   subHeader: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 17,
-    fontWeight: theme.typography.weight.semibold,
     color: theme.colors.text,
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.sm,
@@ -395,7 +393,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   legendText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 11,
     color: theme.colors.textMuted,
     marginHorizontal: 4,
@@ -425,10 +423,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   statValue: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     color: theme.colors.text,
     fontSize: 15,
-    fontWeight: theme.typography.weight.semibold,
   },
   tabContainer: {
     flexDirection: 'row',
@@ -453,14 +450,13 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   tabBtnText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.semibold,
     fontSize: 13,
     color: theme.colors.text,
-    fontWeight: theme.typography.weight.medium,
   },
   tabBtnTextActive: {
     color: '#000000',
-    fontWeight: theme.typography.weight.semibold,
+    fontFamily: theme.typography.semibold,
   },
   chartWrapper: {
     paddingVertical: theme.spacing.xs,
@@ -492,10 +488,9 @@ const styles = StyleSheet.create({
     zIndex: 6,
   },
   goalLabelText: {
-    fontFamily: theme.typography.sans,
+    fontFamily: theme.typography.bold,
     fontSize: 10,
     color: theme.colors.textMuted,
-    fontWeight: theme.typography.weight.bold,
   },
   barsContainer: {
     flexDirection: 'row',

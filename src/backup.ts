@@ -12,11 +12,7 @@ import { Tombstone, loadTombstones, saveTombstones, pruneTombstones } from './to
 // ─── Finding #4: In-memory PBKDF2 key cache ───
 let cachedDerivedKey: { password: string; key: string; salt: string } | null = null;
 
-export function clearDerivedKeyCache(): void {
-  cachedDerivedKey = null;
-}
-
-export function getCachedPassword(): string | null {
+function getCachedPassword(): string | null {
   return cachedDerivedKey ? cachedDerivedKey.password : null;
 }
 
@@ -333,7 +329,7 @@ export async function importVaultBackupFromString(fileStr: string, password: str
   await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
 }
 
-export async function importVaultBackup(fileUri: string, password: string): Promise<void> {
+async function importVaultBackup(fileUri: string, password: string): Promise<void> {
   try {
     // APP SANDBOX PATH COPYING:
     // Copy from external deep link / system temp to local document directory to ensure stable read permissions

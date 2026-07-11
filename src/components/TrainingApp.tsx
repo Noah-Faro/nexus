@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { ChevronLeft, Settings, X } from 'lucide-react-native';
+import { Settings, X } from 'lucide-react-native';
 import { theme } from '../theme';
 import { WorkoutTemplate, WorkoutSession, Exercise, ExerciseDefaults } from '../trainingTypes';
 import { generateId } from '../utils';
@@ -16,7 +16,7 @@ import TemplateEditorSheet from './TemplateEditorSheet';
 import AppAlertModal, { AppAlertButton } from './AppAlertModal';
 import ReorderableTemplateList, { ReorderableTemplateSkeleton } from './ReorderableTemplateList';
 
-export function reconcileTemplateOrder(
+function reconcileTemplateOrder(
   templates: WorkoutTemplate[],
   savedOrder?: string[]
 ): WorkoutTemplate[] {
@@ -536,8 +536,9 @@ export default function TrainingApp({
       <View style={styles.container}>
         <View style={styles.header}>
           <View style={styles.backBtn}>
-            <ChevronLeft size={28} color={theme.colors.accent} style={{ marginLeft: -8 }} />
-            <Text style={styles.backText}>Vault</Text>
+            <View style={{ backgroundColor: theme.colors.surfaceElevated, borderRadius: 15, padding: 4 }}>
+              <X size={20} color={theme.colors.textMuted} />
+            </View>
           </View>
           <Text style={styles.headerTitle} numberOfLines={1}>Training</Text>
           <View style={styles.settingsBtn}>
@@ -678,12 +679,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  backText: {
-    fontFamily: theme.typography.sans,
-    fontSize: 17,
-    color: theme.colors.accent,
-    marginLeft: -4,
-  },
+
   headerTitle: {
     fontFamily: theme.typography.bold,
     fontSize: 18,

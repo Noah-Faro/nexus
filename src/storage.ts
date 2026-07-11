@@ -19,7 +19,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   googleDriveAutoSyncEnabled: true,
 };
 
-export const ACTIVITY_HYDRATION_MULTIPLIERS = {
+const ACTIVITY_HYDRATION_MULTIPLIERS = {
   sedentary: 1.0,
   moderate: 1.15,
   active: 1.3,
