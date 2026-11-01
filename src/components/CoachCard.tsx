@@ -23,6 +23,8 @@ interface CoachCardProps {
   targetReps?: number;
   rpeEnabled?: boolean;
   primaryGoal?: 'hypertrophy' | 'strength';
+  isCardio?: boolean;
+  trackingType?: 'weight_reps' | 'time' | 'time_distance';
 }
 
 /**
@@ -37,7 +39,13 @@ export default function CoachCard({
   targetReps,
   rpeEnabled,
   primaryGoal,
+  isCardio,
+  trackingType,
 }: CoachCardProps) {
+  const isCardioEffective = Boolean(
+    isCardio || trackingType === 'time' || trackingType === 'time_distance'
+  );
+
   const result: CoachResult = useMemo(() => {
     const filteredHistory = excludeSessionId
       ? history.filter((s) => s.id !== excludeSessionId)
@@ -48,16 +56,44 @@ export default function CoachCard({
       rpeEnabled,
       primaryGoal,
       incrementKg: incrementKg ?? WEIGHT_STEP_KG,
+      isCardio: isCardioEffective,
+      trackingType,
     });
-  }, [exerciseId, history, incrementKg, excludeSessionId, targetReps, rpeEnabled, primaryGoal]);
+  }, [
+    exerciseId,
+    history,
+    incrementKg,
+    excludeSessionId,
+    targetReps,
+    rpeEnabled,
+    primaryGoal,
+    isCardioEffective,
+    trackingType,
+  ]);
 
   const target = result.suggestion;
   const targets = result.targets;
   const arch = result.architecture;
 
-  const formatWeight = (w: number) => w === 0 ? 'bodyweight' : `${w}kg`;
+  const formatWeight = (w: number) => (w === 0 ? 'bodyweight' : `${w}kg`);
 
   const renderTargets = () => {
+    if (isCardioEffective || result.cardioTarget) {
+      if (!result.cardioTarget) return null;
+      if (result.cardioTarget.targetDistance !== undefined) {
+        return (
+          <Text style={styles.target}>
+            Target: {result.cardioTarget.targetDistance}km in {result.cardioTarget.targetMinutes} min
+          </Text>
+        );
+      }
+      return (
+        <Text style={styles.target}>
+          Target: {result.cardioTarget.targetMinutes} min
+        </Text>
+      );
+    }
+
     if (!targets || targets.length === 0) {
       if (target) {
         return (
@@ -77,16 +113,12 @@ export default function CoachCard({
         </Text>
       );
     } else if (arch === 'RAMP_UP') {
-      const steps = targets.map(t => `${formatWeight(t.weightKg)}×${t.reps}`).join(' → ');
-      return (
-        <Text style={styles.target}>
-          Ramp up: {steps}
-        </Text>
-      );
+      const steps = targets.map((t) => `${formatWeight(t.weightKg)}×${t.reps}`).join(' → ');
+      return <Text style={styles.target}>Ramp up: {steps}</Text>;
     } else if (arch === 'TOP_SET_BACK_OFF') {
       const topSet = targets[0];
       const backOffs = targets.slice(1);
-      const backOffStr = backOffs.map(t => `${formatWeight(t.weightKg)}×${t.reps}`).join(', ');
+      const backOffStr = backOffs.map((t) => `${formatWeight(t.weightKg)}×${t.reps}`).join(', ');
       return (
         <Text style={styles.target}>
           Top Set: {formatWeight(topSet.weightKg)}×{topSet.reps}, Back-offs: {backOffStr}

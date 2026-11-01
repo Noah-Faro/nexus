@@ -61,7 +61,25 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
   }, [visible, template]);
 
   const handleAddExercise = (exerciseId: string) => {
-    setExercises([...exercises, { exerciseId, targetSets: 3, targetReps: 10 }]);
+    const exDef = getExerciseById(exerciseId, customExercises);
+    const isCardio = Boolean(
+      exDef?.muscleGroup === 'cardio' ||
+      exDef?.trackingType === 'time' ||
+      exDef?.trackingType === 'time_distance'
+    );
+    if (isCardio) {
+      setExercises([
+        ...exercises,
+        {
+          exerciseId,
+          targetSets: 1,
+          targetReps: 0,
+          targetMinutes: 20,
+        },
+      ]);
+    } else {
+      setExercises([...exercises, { exerciseId, targetSets: 3, targetReps: 10 }]);
+    }
   };
 
   const handleRemoveExercise = (index: number) => {
@@ -175,11 +193,23 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
             {exercises.map((tEx, index) => {
               const exDef = getExerciseById(tEx.exerciseId, customExercises);
               if (!exDef) return null;
+              const isCardio = Boolean(
+                exDef.muscleGroup === 'cardio' ||
+                exDef.trackingType === 'time' ||
+                exDef.trackingType === 'time_distance'
+              );
 
               return (
                 <View key={`${tEx.exerciseId}-${index}`} style={styles.exerciseCard}>
                   <View style={styles.exHeaderRow}>
-                    <Text style={styles.exName}>{exDef.name}</Text>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.exName}>{exDef.name}</Text>
+                      <Text style={styles.exSubtitle}>
+                        {isCardio
+                          ? `${tEx.targetSets} set${tEx.targetSets > 1 ? 's' : ''} • Target: ${tEx.targetMinutes ?? 20} min`
+                          : `${tEx.targetSets} sets • ${tEx.targetReps} reps`}
+                      </Text>
+                    </View>
                     <View style={styles.exActions}>
                       {index > 0 && (
                         <TouchableOpacity onPress={() => handleMoveExercise(index, -1)} style={styles.actionBtn}>
@@ -197,25 +227,51 @@ export default function TemplateEditorSheet({ visible, onClose, template, onSave
                     </View>
                   </View>
 
-                  <View style={styles.pickersRow}>
-                    <View style={styles.pickerGroup}>
-                      <Text style={styles.pickerLabel}>Sets</Text>
-                      <StepperInput
-                        value={tEx.targetSets}
-                        onChange={(val) => updateTarget(index, 'targetSets', val - tEx.targetSets)}
-                        min={1}
-                      />
-                    </View>
+                  {isCardio ? (
+                    <View style={styles.pickersRow}>
+                      <View style={styles.pickerGroup}>
+                        <Text style={styles.pickerLabel}>Sets</Text>
+                        <StepperInput
+                          value={tEx.targetSets}
+                          onChange={(val) => updateTarget(index, 'targetSets', val - tEx.targetSets)}
+                          min={1}
+                        />
+                      </View>
 
-                    <View style={styles.pickerGroup}>
-                      <Text style={styles.pickerLabel}>Reps</Text>
-                      <StepperInput
-                        value={tEx.targetReps}
-                        onChange={(val) => updateTarget(index, 'targetReps', val - tEx.targetReps)}
-                        min={1}
-                      />
+                      <View style={styles.pickerGroup}>
+                        <Text style={styles.pickerLabel}>Target (min)</Text>
+                        <StepperInput
+                          value={tEx.targetMinutes ?? 20}
+                          onChange={(val) => {
+                            const updated = [...exercises];
+                            updated[index] = { ...updated[index], targetMinutes: val };
+                            setExercises(updated);
+                          }}
+                          min={1}
+                        />
+                      </View>
                     </View>
-                  </View>
+                  ) : (
+                    <View style={styles.pickersRow}>
+                      <View style={styles.pickerGroup}>
+                        <Text style={styles.pickerLabel}>Sets</Text>
+                        <StepperInput
+                          value={tEx.targetSets}
+                          onChange={(val) => updateTarget(index, 'targetSets', val - tEx.targetSets)}
+                          min={1}
+                        />
+                      </View>
+
+                      <View style={styles.pickerGroup}>
+                        <Text style={styles.pickerLabel}>Reps</Text>
+                        <StepperInput
+                          value={tEx.targetReps}
+                          onChange={(val) => updateTarget(index, 'targetReps', val - tEx.targetReps)}
+                          min={1}
+                        />
+                      </View>
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -375,7 +431,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Outfit_600SemiBold',
     fontSize: 16,
     color: theme.colors.text,
-    flex: 1,
+  },
+  exSubtitle: {
+    fontFamily: theme.typography.sans,
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    marginTop: 2,
   },
   exActions: {
     flexDirection: 'row',

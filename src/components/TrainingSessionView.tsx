@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Check, ChevronDown, ChevronUp, Trash2, Plus, Info } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronUp, Trash2, Plus, Info, Droplet } from 'lucide-react-native';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { theme } from '../theme';
 import { WorkoutSession, LoggedSet, TemplateExercise, Exercise, ExerciseDefaults } from '../trainingTypes';
 import ExercisePickerModal from './ExercisePickerModal';
+import QuickWaterModal from './QuickWaterModal';
 import { generateId, getExerciseById } from '../utils';
 import StepperInput from './StepperInput';
 import IntegerSlider from './IntegerSlider';
 import CoachCard from './CoachCard';
 import { AppAlertButton } from './AppAlertModal';
-import { saveActiveSession } from '../trainingStorage';
+import { saveActiveSessionStrict } from '../trainingStorage';
+import { shouldEnqueueActiveSessionAutosave } from '../serializedAsyncQueue';
 import { getActiveGymProfile } from '../gymStorage';
 import { loadSettings } from '../storage';
 import { UserSettings } from '../types';
@@ -25,11 +27,28 @@ interface TrainingSessionViewProps {
   exerciseDefaults: Record<string, ExerciseDefaults>;
   history: WorkoutSession[];
   onFinishSession: (session: WorkoutSession) => void;
+  isFinishing: boolean;
   onCustomExercisesChange?: (updated: Exercise[]) => void;
   triggerAlert: (title: string, message: string, buttons?: AppAlertButton[]) => void;
+  onLogDrink?: (amount: number, type?: string) => Promise<void> | void;
+  onCloudAutoPush?: () => void | Promise<void>;
+  onMinimize?: () => void;
 }
 
-export default function TrainingSessionView({ session, templateExercises, customExercises, exerciseDefaults, history, onFinishSession, onCustomExercisesChange, triggerAlert }: TrainingSessionViewProps) {
+export default function TrainingSessionView({
+  session,
+  templateExercises,
+  customExercises,
+  exerciseDefaults,
+  history,
+  onFinishSession,
+  isFinishing,
+  onCustomExercisesChange,
+  triggerAlert,
+  onLogDrink,
+  onCloudAutoPush,
+  onMinimize,
+}: TrainingSessionViewProps) {
   const [sessionExercises, setSessionExercises] = useState<TemplateExercise[]>(() => {
     if (session.exercises && session.exercises.length > 0) {
       return session.exercises;
@@ -46,7 +65,17 @@ export default function TrainingSessionView({ session, templateExercises, custom
         const templateEx = templateExercises.find(t => t.exerciseId === exId);
         if (templateEx) return templateEx;
 
+        const exDef = getExerciseById(exId, customExercises);
+        const isCardio = Boolean(exDef?.muscleGroup === 'cardio' || exDef?.trackingType === 'time' || exDef?.trackingType === 'time_distance');
         const exSets = session.sets.filter(s => s.exerciseId === exId);
+        if (isCardio) {
+          return {
+            exerciseId: exId,
+            targetSets: Math.max(1, exSets.length),
+            targetReps: 0,
+            targetMinutes: exSets[0]?.timeMinutes ?? (exSets[0]?.reps || 20),
+          };
+        }
         return {
           exerciseId: exId,
           targetSets: Math.max(3, exSets.length),
@@ -63,12 +92,17 @@ export default function TrainingSessionView({ session, templateExercises, custom
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
   const [currentWeight, setCurrentWeight] = useState(20);
   const [currentReps, setCurrentReps] = useState(8);
+  const [currentTimeMinutes, setCurrentTimeMinutes] = useState(20);
   const [currentRpe, setCurrentRpe] = useState(8);
   const [logRpe, setLogRpe] = useState(false);
   const [isWarmup, setIsWarmup] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [waterModalVisible, setWaterModalVisible] = useState(false);
   const [gymProfile, setGymProfile] = useState<any>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const autosaveErrorShownRef = useRef(false);
+  const triggerAlertRef = useRef(triggerAlert);
+  triggerAlertRef.current = triggerAlert;
 
   useEffect(() => {
     getActiveGymProfile().then(setGymProfile);
@@ -84,36 +118,63 @@ export default function TrainingSessionView({ session, templateExercises, custom
   // Load defaults when active exercise changes
   useEffect(() => {
     if (activeExDef) {
+      const isCardio = Boolean(activeExDef.muscleGroup === 'cardio' || activeExDef.trackingType === 'time' || activeExDef.trackingType === 'time_distance');
       const prevSession = history.find(s => s.id !== session.id && s.sets.some(set => set.exerciseId === activeExDef.id));
       const prevSets = prevSession?.sets.filter(s => s.exerciseId === activeExDef.id);
       
       if (prevSets && prevSets.length > 0) {
         const lastSet = prevSets[prevSets.length - 1];
         setCurrentWeight(lastSet.weight);
-        setCurrentReps(activeTemplateEx?.targetReps || lastSet.reps);
+        setCurrentReps(activeTemplateEx?.targetReps ?? lastSet.reps);
+        setCurrentTimeMinutes(lastSet.timeMinutes ?? (isCardio ? lastSet.reps : (activeTemplateEx?.targetMinutes ?? 20)));
         setCurrentRpe(lastSet.rpe || 8);
       } else {
         const defaults = exerciseDefaults[activeExDef.id];
         if (defaults) {
           setCurrentWeight(defaults.defaultWeight);
           setCurrentReps(defaults.defaultReps);
+          setCurrentTimeMinutes(activeTemplateEx?.targetMinutes ?? 20);
           setCurrentRpe(8);
         } else {
           // Fallback generic defaults
-          const isDB = activeExDef.equipment === 'dumbbell';
-          setCurrentWeight(activeExDef.equipment === 'bodyweight' ? 0 : (isDB ? 10 : 20));
-          setCurrentReps(10);
-          setCurrentRpe(8);
+          if (isCardio) {
+            const isTimeDist = activeExDef.trackingType === 'time_distance';
+            setCurrentWeight(isTimeDist ? 5 : 0);
+            setCurrentReps(0);
+            setCurrentTimeMinutes(activeTemplateEx?.targetMinutes ?? 20);
+            setCurrentRpe(8);
+          } else {
+            const isDB = activeExDef.equipment === 'dumbbell';
+            setCurrentWeight(activeExDef.equipment === 'bodyweight' ? 0 : (isDB ? 10 : 20));
+            setCurrentReps(10);
+            setCurrentTimeMinutes(20);
+            setCurrentRpe(8);
+          }
         }
       }
     }
-  }, [activeExerciseIndex, activeExDef?.id, history, session.id]);
+  }, [activeExerciseIndex, activeExDef?.id, history, session.id, activeTemplateEx?.targetMinutes, activeTemplateEx?.targetReps]);
 
   useEffect(() => {
-    if (!session.endTime) {
-      saveActiveSession({ ...session, sets, exercises: sessionExercises });
-    }
-  }, [sets, sessionExercises]);
+    if (!shouldEnqueueActiveSessionAutosave(Boolean(session.endTime), isFinishing)) return;
+    let cancelled = false;
+    void saveActiveSessionStrict({ ...session, sets, exercises: sessionExercises })
+      .then(() => {
+        autosaveErrorShownRef.current = false;
+      })
+      .catch(error => {
+        console.error('Failed to autosave active workout', error);
+        if (cancelled || autosaveErrorShownRef.current) return;
+        autosaveErrorShownRef.current = true;
+        triggerAlertRef.current(
+          'Autosave Error',
+          'Workout changes could not be saved. Keep this workout open, unlock secure storage or free device space, then make another change to retry.',
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isFinishing, session, sessionExercises, sets]);
 
   // Track timer
   const [elapsed, setElapsed] = useState(0);
@@ -140,19 +201,37 @@ export default function TrainingSessionView({ session, templateExercises, custom
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     
-    const newSet: LoggedSet = {
-      id: generateId(),
-      exerciseId: activeExDef.id,
-      exerciseName: activeExDef.name,
-      setNumber: isWarmup ? 0 : sets.filter(s => s.exerciseId === activeExDef.id && !s.isWarmup).length + 1,
-      weight: currentWeight,
-      weightUnit: activeUnit,
-      reps: currentReps,
-      rpe: (!logRpe || isWarmup) ? undefined : currentRpe,
-      isWarmup,
-      timestamp: Date.now(),
-      estimated1RM: Math.round(currentWeight * (1 + currentReps / 30))
-    };
+    const isCardio = Boolean(activeExDef.muscleGroup === 'cardio' || activeExDef.trackingType === 'time' || activeExDef.trackingType === 'time_distance');
+    const isTimeDistance = activeExDef.trackingType === 'time_distance';
+
+    const newSet: LoggedSet = isCardio
+      ? {
+          id: generateId(),
+          exerciseId: activeExDef.id,
+          exerciseName: activeExDef.name,
+          setNumber: isWarmup ? 0 : sets.filter(s => s.exerciseId === activeExDef.id && !s.isWarmup).length + 1,
+          weight: isTimeDistance ? currentWeight : 0,
+          weightUnit: activeUnit,
+          reps: Number(currentTimeMinutes.toFixed(1)),
+          timeMinutes: Number(currentTimeMinutes.toFixed(1)),
+          rpe: undefined,
+          isWarmup,
+          timestamp: Date.now(),
+          estimated1RM: 0,
+        }
+      : {
+          id: generateId(),
+          exerciseId: activeExDef.id,
+          exerciseName: activeExDef.name,
+          setNumber: isWarmup ? 0 : sets.filter(s => s.exerciseId === activeExDef.id && !s.isWarmup).length + 1,
+          weight: currentWeight,
+          weightUnit: activeUnit,
+          reps: currentReps,
+          rpe: (!logRpe || isWarmup) ? undefined : currentRpe,
+          isWarmup,
+          timestamp: Date.now(),
+          estimated1RM: Math.round(currentWeight * (1 + currentReps / 30))
+        };
 
     const newSets = [...sets, newSet];
     setSets(newSets);
@@ -191,11 +270,20 @@ export default function TrainingSessionView({ session, templateExercises, custom
   };
 
   const handleAddExercise = (exerciseId: string) => {
-    const newEx: TemplateExercise = {
-      exerciseId,
-      targetSets: 3,
-      targetReps: 10
-    };
+    const exDef = getExerciseById(exerciseId, customExercises);
+    const isCardio = Boolean(exDef?.muscleGroup === 'cardio' || exDef?.trackingType === 'time' || exDef?.trackingType === 'time_distance');
+    const newEx: TemplateExercise = isCardio
+      ? {
+          exerciseId,
+          targetSets: 1,
+          targetReps: 0,
+          targetMinutes: 20,
+        }
+      : {
+          exerciseId,
+          targetSets: 3,
+          targetReps: 10,
+        };
     setSessionExercises([...sessionExercises, newEx]);
   };
 
@@ -261,6 +349,8 @@ export default function TrainingSessionView({ session, templateExercises, custom
 
     const isExpanded = index === activeExerciseIndex;
     const completedSets = sets.filter(s => s.exerciseId === exDef.id);
+    const isCardio = Boolean(exDef.muscleGroup === 'cardio' || exDef.trackingType === 'time' || exDef.trackingType === 'time_distance');
+    const isTimeDistance = exDef.trackingType === 'time_distance';
 
     return (
       <View key={exDef.id + index} style={[styles.exerciseCard, isExpanded && styles.exerciseCardActive]}>
@@ -315,6 +405,8 @@ export default function TrainingSessionView({ session, templateExercises, custom
               targetReps={tEx.targetReps}
               rpeEnabled={settings?.rpeEnabled}
               primaryGoal={settings?.primaryGoal}
+              isCardio={exDef.muscleGroup === 'cardio' || exDef.trackingType === 'time' || exDef.trackingType === 'time_distance'}
+              trackingType={exDef.trackingType}
             />
 
             {/* Completed Sets */}
@@ -332,11 +424,11 @@ export default function TrainingSessionView({ session, templateExercises, custom
                     {s.isWarmup ? 'Warmup' : `Set ${s.setNumber}`}
                   </Text>
                   <Text style={styles.setText}>
-                    {exDef.trackingType === 'time' 
-                      ? `${s.reps} sec`
-                      : exDef.trackingType === 'time_distance'
-                        ? `${s.weight}${s.weightUnit === 'kg' ? 'km' : 'mi'} in ${s.reps} min`
-                        : `${s.weight}${s.weightUnit} × ${s.reps}`
+                    {isCardio
+                      ? isTimeDistance
+                        ? `${s.weight}${s.weightUnit === 'kg' ? 'km' : 'mi'} in ${s.timeMinutes ?? s.reps} min`
+                        : `${s.timeMinutes ?? s.reps} min`
+                      : `${s.weight}${s.weightUnit} × ${s.reps}`
                     }
                   </Text>
                   <Check size={16} color={theme.colors.accent} />
@@ -351,78 +443,108 @@ export default function TrainingSessionView({ session, templateExercises, custom
                   {isWarmup ? 'Warmup' : `Set ${completedSets.filter(s => !s.isWarmup).length + 1}`}
                 </Text>
                 <Text style={[styles.setTextActive, isWarmup && { color: '#FF9F0A' }]}>
-                  {exDef.trackingType === 'time' 
-                      ? `${currentReps} sec`
-                      : exDef.trackingType === 'time_distance'
-                        ? `${currentWeight}${exUnit === 'kg' ? 'km' : 'mi'} in ${currentReps} min`
-                        : `${currentWeight}${exUnit} × ${currentReps}`
+                  {isCardio
+                    ? isTimeDistance
+                      ? `${currentWeight}${exUnit === 'kg' ? 'km' : 'mi'} in ${currentTimeMinutes} min`
+                      : `${currentTimeMinutes} min`
+                    : `${currentWeight}${exUnit} × ${currentReps}`
                   }
                 </Text>
               </View>
 
-              {/* Weight stepper — full width */}
-              {exDef.trackingType !== 'time' && (
-                <View style={styles.inputRow}>
-                  <Text style={styles.inputLabel}>
-                    {exDef.trackingType === 'time_distance' ? `Distance (${exUnit === 'kg' ? 'km' : 'mi'})` : `Weight (${exUnit})`}
-                  </Text>
-                  <View style={styles.inputControl}>
-                    <StepperInput
-                      value={currentWeight}
-                      onChange={(val) => setCurrentWeight(Number(val.toFixed(1)))}
-                      min={0}
-                      step={exDef.trackingType === 'time_distance' ? 0.1 : incrementStep}
-                    />
-                  </View>
-                </View>
-              )}
-
-              {/* Reps stepper — full width */}
-              <View style={styles.inputRow}>
-                <Text style={styles.inputLabel}>
-                  {exDef.trackingType === 'time' ? 'Time (sec)' : (exDef.trackingType === 'time_distance' ? 'Time (min)' : 'Reps')}
-                </Text>
-                <View style={styles.inputControl}>
-                  <StepperInput
-                    value={currentReps}
-                    onChange={setCurrentReps}
-                    min={1}
-                    step={exDef.trackingType === 'time' ? 5 : 1}
-                  />
-                </View>
-              </View>
-
-              {/* RPE Switch & Slider */}
-              {!isWarmup && exDef.trackingType !== 'time' && exDef.trackingType !== 'time_distance' && (
-                <View style={styles.rpeSection}>
-                  <View style={styles.inputRow}>
-                    <View style={styles.rpeLabelRow}>
-                      <Text style={[styles.inputLabel, { minWidth: 'auto' }]}>Log RPE</Text>
-                      <TouchableOpacity onPress={showRpeInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <Info size={14} color={theme.colors.textMuted} />
-                      </TouchableOpacity>
+              {isCardio ? (
+                <>
+                  {isTimeDistance && (
+                    <View style={styles.inputRow}>
+                      <Text style={styles.inputLabel}>
+                        Distance ({exUnit === 'kg' ? 'km' : 'mi'})
+                      </Text>
+                      <View style={styles.inputControl}>
+                        <StepperInput
+                          value={currentWeight}
+                          onChange={(val) => setCurrentWeight(Number(val.toFixed(1)))}
+                          min={0}
+                          step={0.1}
+                        />
+                      </View>
                     </View>
+                  )}
+
+                  <View style={styles.inputRow}>
+                    <Text style={styles.inputLabel}>Time (min)</Text>
                     <View style={styles.inputControl}>
-                      <Switch
-                        value={logRpe}
-                        onValueChange={(val) => {
-                          Haptics.selectionAsync();
-                          setLogRpe(val);
-                          if (val) setIsWarmup(false);
-                        }}
-                        trackColor={{ false: theme.colors.surfaceMuted, true: '#FF9F0A' }}
+                      <StepperInput
+                        value={currentTimeMinutes}
+                        onChange={(val) => setCurrentTimeMinutes(Number(val.toFixed(1)))}
+                        min={0.1}
+                        step={1}
                       />
                     </View>
                   </View>
-                  {logRpe && (
-                    <IntegerSlider 
-                      min={5} 
-                      max={10} 
-                      value={currentRpe} 
-                      onChange={setCurrentRpe} 
-                    />
+                </>
+              ) : (
+                <>
+                  {/* Weight stepper — full width */}
+                  <View style={styles.inputRow}>
+                    <Text style={styles.inputLabel}>
+                      Weight ({exUnit})
+                    </Text>
+                    <View style={styles.inputControl}>
+                      <StepperInput
+                        value={currentWeight}
+                        onChange={(val) => setCurrentWeight(Number(val.toFixed(1)))}
+                        min={0}
+                        step={incrementStep}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Reps stepper — full width */}
+                  <View style={styles.inputRow}>
+                    <Text style={styles.inputLabel}>Reps</Text>
+                    <View style={styles.inputControl}>
+                      <StepperInput
+                        value={currentReps}
+                        onChange={setCurrentReps}
+                        min={1}
+                        step={1}
+                      />
+                    </View>
+                  </View>
+
+                  {/* RPE Switch & Slider */}
+                  {!isWarmup && (
+                    <View style={styles.rpeSection}>
+                      <View style={styles.inputRow}>
+                        <View style={styles.rpeLabelRow}>
+                          <Text style={[styles.inputLabel, { minWidth: 'auto' }]}>Log RPE</Text>
+                          <TouchableOpacity onPress={showRpeInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Info size={14} color={theme.colors.textMuted} />
+                          </TouchableOpacity>
+                        </View>
+                        <View style={styles.inputControl}>
+                          <Switch
+                            value={logRpe}
+                            onValueChange={(val) => {
+                              Haptics.selectionAsync();
+                              setLogRpe(val);
+                              if (val) setIsWarmup(false);
+                            }}
+                            trackColor={{ false: theme.colors.surfaceMuted, true: '#FF9F0A' }}
+                          />
+                        </View>
+                      </View>
+                      {logRpe && (
+                        <IntegerSlider 
+                          min={5} 
+                          max={10} 
+                          value={currentRpe} 
+                          onChange={setCurrentRpe} 
+                        />
+                      )}
+                    </View>
                   )}
-                </View>
+                </>
               )}
 
               {/* Warmup Toggle */}
@@ -443,7 +565,7 @@ export default function TrainingSessionView({ session, templateExercises, custom
 
               {/* Intra-Set RPE Feedback Snippet */}
               {(() => {
-                if (completedSets.length === 0 || isWarmup) return null;
+                if (completedSets.length === 0 || isWarmup || isCardio) return null;
                 const lastSet = completedSets[completedSets.length - 1];
                 if (!lastSet.rpe) return null;
                 
@@ -505,35 +627,67 @@ export default function TrainingSessionView({ session, templateExercises, custom
   return (
     <GestureHandlerRootView style={styles.container}>
       <View style={styles.timerBar}>
-        <Text style={styles.timerText}>{formatTime(elapsed)}</Text>
+        <View style={styles.timerContent}>
+          <Text style={styles.timerText}>{formatTime(elapsed)}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.waterQuickBtn}
+          onPress={() => setWaterModalVisible(true)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Quick log water intake"
+        >
+          <Droplet size={15} color={theme.colors.accentCyan} fill={theme.colors.accentCyan} />
+          <Text style={styles.waterQuickBtnText}>+ Water</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        {sessionExercises.map((tEx, i) => renderExerciseCard(tEx, i))}
-        
-        <TouchableOpacity style={styles.addExerciseBtn} onPress={() => setPickerVisible(true)}>
-          <Plus size={20} color={theme.colors.text} />
-          <Text style={styles.addExerciseText}>Add Exercise</Text>
-        </TouchableOpacity>
+        <View
+          pointerEvents={isFinishing ? 'none' : 'auto'}
+          accessibilityElementsHidden={isFinishing}
+          importantForAccessibility={isFinishing ? 'no-hide-descendants' : 'auto'}
+          style={isFinishing ? styles.editingDisabled : undefined}
+        >
+          {sessionExercises.map((tEx, i) => renderExerciseCard(tEx, i))}
+
+          <TouchableOpacity style={styles.addExerciseBtn} onPress={() => setPickerVisible(true)}>
+            <Plus size={20} color={theme.colors.text} />
+            <Text style={styles.addExerciseText}>Add Exercise</Text>
+          </TouchableOpacity>
+        </View>
         
         <TouchableOpacity 
-          style={styles.finishBtn} 
+          style={[styles.finishBtn, isFinishing && styles.finishBtnDisabled]}
+          disabled={isFinishing}
+          accessibilityRole="button"
+          accessibilityLabel={isFinishing ? 'Saving workout' : 'Finish session'}
+          accessibilityState={{ disabled: isFinishing, busy: isFinishing }}
           onPress={() => {
             const finalSession = { ...session, sets, exercises: sessionExercises };
             onFinishSession(finalSession);
           }}
         >
           <View style={styles.finishSquare} />
-          <Text style={styles.finishBtnText}>Finish Session</Text>
+          <Text style={styles.finishBtnText} accessibilityLiveRegion="polite">
+            {isFinishing ? 'Saving…' : 'Finish Session'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
 
       <ExercisePickerModal
-        visible={pickerVisible}
+        visible={pickerVisible && !isFinishing}
         onClose={() => setPickerVisible(false)}
         onSelect={handleAddExercise}
         customExercises={customExercises}
         onCustomExercisesChange={onCustomExercisesChange}
+      />
+
+      <QuickWaterModal
+        visible={waterModalVisible && !isFinishing}
+        onClose={() => setWaterModalVisible(false)}
+        onLogDrink={onLogDrink}
+        onCloudAutoPush={onCloudAutoPush}
       />
     </GestureHandlerRootView>
   );
@@ -547,17 +701,37 @@ const styles = StyleSheet.create({
   timerBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: 10,
     backgroundColor: theme.colors.surfaceElevated,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.border,
   },
+  timerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   timerText: {
     fontFamily: theme.typography.sans,
     color: theme.colors.textMuted,
-    marginLeft: 8,
-    fontSize: 16,
+    fontSize: 15,
+  },
+  waterQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(100, 210, 255, 0.12)',
+    borderColor: 'rgba(100, 210, 255, 0.3)',
+    borderWidth: 1,
+    borderRadius: theme.borderRadius.round,
+    paddingVertical: 5,
+    paddingHorizontal: 11,
+  },
+  waterQuickBtnText: {
+    fontFamily: theme.typography.semibold,
+    fontSize: 12,
+    color: theme.colors.accentCyan,
+    marginLeft: 5,
   },
   scroll: {
     flex: 1,
@@ -565,6 +739,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: theme.spacing.lg,
     paddingBottom: 100,
+  },
+  editingDisabled: {
+    opacity: 0.55,
   },
   exerciseCard: {
     backgroundColor: theme.colors.surfaceElevated,
@@ -732,6 +909,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 69, 58, 0.3)',
+  },
+  finishBtnDisabled: {
+    opacity: 0.55,
   },
   finishSquare: {
     width: 14,

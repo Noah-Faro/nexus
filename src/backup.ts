@@ -8,6 +8,8 @@ import { loadWorkoutSessions, loadTemplates, loadCustomExercises, loadExerciseDe
 import { saveSettings, saveLogs } from './storage';
 import { saveWorkoutSessions, saveTemplates, saveCustomExercises, saveExerciseDefaults } from './trainingStorage';
 import { Tombstone, loadTombstones, saveTombstones, pruneTombstones } from './tombstones';
+import { replayStagedMerge } from './mergeReplay';
+import { buildVaultBackupState } from './backupPayload';
 
 // ─── Finding #4: In-memory PBKDF2 key cache ───
 let cachedDerivedKey: { password: string; key: string; salt: string } | null = null;
@@ -38,45 +40,46 @@ const MERGE_STAGING_KEY = 'nexus_merge_staging';
  * Call this on app startup before any sync operations.
  */
 export async function replayPendingMerge(): Promise<void> {
-  try {
-    const stagingData = await AsyncStorage.getItem(MERGE_STAGING_KEY);
-    if (!stagingData) return;
-
-    console.log('Replaying interrupted merge from staging key...');
-    const staged = JSON.parse(stagingData);
-
-    await saveSettings(staged.settings);
-    await saveLogs(staged.logs);
-    await saveWorkoutSessions(staged.sessions);
-    await saveTemplates(staged.templates);
-    await saveCustomExercises(staged.customExercises);
-    await saveExerciseDefaults(staged.defaults);
-    if (staged.tombstones) {
-      await saveTombstones(staged.tombstones);
-    }
-
-    await AsyncStorage.removeItem(MERGE_STAGING_KEY);
+  const stagingData = await AsyncStorage.getItem(MERGE_STAGING_KEY);
+  const replayed = await replayStagedMerge<Record<string, any>>(stagingData, {
+    parse: serialized => JSON.parse(serialized),
+    writeSteps: staged => [
+      () => saveSettings(staged.settings),
+      () => saveLogs(staged.logs),
+      () => saveWorkoutSessions(staged.sessions),
+      () => saveTemplates(staged.templates),
+      () => saveCustomExercises(staged.customExercises),
+      () => saveExerciseDefaults(staged.defaults),
+      ...(staged.tombstones ? [() => saveTombstones(staged.tombstones)] : []),
+    ],
+    removeStaging: () => AsyncStorage.removeItem(MERGE_STAGING_KEY),
+  });
+  if (replayed) {
     console.log('Interrupted merge replay completed successfully.');
-  } catch (e) {
-    console.error('Failed to replay pending merge:', e);
-    // Clear corrupted staging data so we don't loop on it
-    await AsyncStorage.removeItem(MERGE_STAGING_KEY).catch(() => {});
   }
 }
 
 export async function exportVaultBackupToString(password: string): Promise<string> {
   // 1. Gather all state
-  const state = {
-    version: '1.0',
+  const [logs, settings, sessions, templates, customExercises, exerciseDefaults, tombstones] = await Promise.all([
+    loadLogs(),
+    loadSettings(),
+    loadWorkoutSessions(),
+    loadTemplates(),
+    loadCustomExercises(),
+    loadExerciseDefaults(),
+    loadTombstones(),
+  ]);
+  const state = buildVaultBackupState({
     exportedAt: new Date().toISOString(),
-    hydration_history: await loadLogs(),
-    settings: await loadSettings(),
-    workout_sessions: await loadWorkoutSessions(),
-    workout_templates: await loadTemplates(),
-    custom_exercises: await loadCustomExercises(),
-    exercise_defaults: await loadExerciseDefaults(),
-    tombstones: await loadTombstones(), // Finding #1: Include tombstones in backup
-  };
+    logs,
+    settings,
+    sessions,
+    templates,
+    customExercises,
+    exerciseDefaults,
+    tombstones,
+  });
 
   const payloadJson = JSON.stringify(state);
 

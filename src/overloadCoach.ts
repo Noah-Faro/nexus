@@ -41,6 +41,11 @@ export interface CoachResult {
    */
   positionNote?: string;
   coachNote?: string;
+  cardioTarget?: {
+    targetMinutes: number;
+    targetDistance?: number;
+    paceMinutesPerUnit?: number;
+  };
 }
 
 function calculateComposite1RM(weight: number, reps: number): number {
@@ -59,7 +64,7 @@ function calculateWeightFromComposite(c1RM: number, targetReps: number): number 
 /** A completed session's sets for a single exercise, most-recent first. */
 export interface CoachSession {
   dateKey: string;
-  sets: { weightKg: number; reps: number; rpe?: number; isWarmup?: boolean }[];
+  sets: { weightKg: number; reps: number; rpe?: number; isWarmup?: boolean; distance?: number; timeMinutes?: number }[];
   /** 0-based exercise position within its session. Optional for backwards compat. */
   position?: number;
 }
@@ -249,6 +254,8 @@ export function buildCoachHistory(
       sets: exSets.map((s) => ({
         weightKg: s.weight,
         reps: s.reps,
+        distance: s.weight,
+        timeMinutes: s.timeMinutes ?? s.reps,
         rpe: s.rpe,
         isWarmup: s.isWarmup,
       })),
@@ -268,6 +275,8 @@ export interface CoachOptions {
   volumeSnapshot?: import('./trainingTypes').VolumeStateSnapshot;
   rpeEnabled?: boolean;
   targetReps?: number;
+  isCardio?: boolean;
+  trackingType?: 'weight_reps' | 'time' | 'time_distance';
 }
 
 /**
@@ -281,6 +290,108 @@ export function suggestNextTarget(
   options: CoachOptions = {},
 ): CoachResult {
   let incrementKg = options.incrementKg ?? WEIGHT_STEP_KG;
+
+  const isCardio = Boolean(
+    options.isCardio ||
+    options.trackingType === 'time' ||
+    options.trackingType === 'time_distance'
+  );
+
+  if (isCardio) {
+    const isTimeDistance =
+      options.trackingType === 'time_distance' ||
+      (!options.trackingType &&
+        history.length > 0 &&
+        history[0].sets.some((s) => (s.distance ?? s.weightKg ?? 0) > 0));
+
+    const sessions = history.filter((session) => session.sets.length > 0);
+
+    if (!isTimeDistance) {
+      if (sessions.length === 0) {
+        return {
+          cardioTarget: { targetMinutes: 20 },
+          suggestion: undefined,
+          reasoning: 'First session — establish a steady baseline duration (e.g. 15-20 min).',
+        };
+      }
+
+      const last = sessions[0]!;
+      const actualWorkingSets = last.sets.filter((s) => !s.isWarmup);
+      const setsToEvaluate = actualWorkingSets.length > 0 ? actualWorkingSets : last.sets;
+
+      const lastMinutes = round1(
+        setsToEvaluate.reduce((sum, s) => sum + (s.timeMinutes ?? s.reps ?? 0), 0)
+      );
+
+      if (lastMinutes <= 0) {
+        return {
+          cardioTarget: { targetMinutes: 20 },
+          suggestion: undefined,
+          reasoning: 'First session — establish a steady baseline duration (e.g. 15-20 min).',
+        };
+      }
+
+      const targetMinutes = round1(Math.max(lastMinutes + 1, lastMinutes * 1.1));
+      const reasoning = `Last session: ${lastMinutes.toFixed(1)} min. Aim for ${targetMinutes.toFixed(1)} min at a sustained pace.`;
+
+      return {
+        cardioTarget: { targetMinutes },
+        suggestion: undefined,
+        reasoning,
+      };
+    } else {
+      if (sessions.length === 0) {
+        return {
+          cardioTarget: { targetDistance: 5, targetMinutes: 30, paceMinutesPerUnit: 6 },
+          suggestion: undefined,
+          reasoning: 'First session — complete a steady baseline distance (e.g. 3-5 km).',
+        };
+      }
+
+      const last = sessions[0]!;
+      const actualWorkingSets = last.sets.filter((s) => !s.isWarmup);
+      const setsToEvaluate = actualWorkingSets.length > 0 ? actualWorkingSets : last.sets;
+
+      const lastDistance = round1(
+        setsToEvaluate.reduce((sum, s) => sum + (s.distance ?? s.weightKg ?? 0), 0)
+      );
+      const lastMinutes = round1(
+        setsToEvaluate.reduce((sum, s) => sum + (s.timeMinutes ?? s.reps ?? 0), 0)
+      );
+
+      if (lastDistance <= 0 || lastMinutes <= 0) {
+        if (lastMinutes > 0) {
+          const targetMinutes = round1(Math.max(lastMinutes + 1, lastMinutes * 1.1));
+          return {
+            cardioTarget: { targetMinutes },
+            suggestion: undefined,
+            reasoning: `Last session: ${lastMinutes.toFixed(1)} min. Aim for ${targetMinutes.toFixed(1)} min at a sustained pace.`,
+          };
+        }
+        return {
+          cardioTarget: { targetDistance: 5, targetMinutes: 30, paceMinutesPerUnit: 6 },
+          suggestion: undefined,
+          reasoning: 'First session — complete a steady baseline distance (e.g. 3-5 km).',
+        };
+      }
+
+      const lastPace = lastMinutes / lastDistance;
+      let targetDistance = round1(lastDistance * 1.05);
+      if (targetDistance <= lastDistance) {
+        targetDistance = round1(lastDistance + 0.1);
+      }
+      const targetMinutes = round1(targetDistance * lastPace);
+      const paceMinutesPerUnit = round1(lastPace);
+
+      const reasoning = `Last session: ${lastDistance.toFixed(1)}km in ${lastMinutes.toFixed(1)} min (${lastPace.toFixed(1)} min/km). Aim for ${targetDistance.toFixed(1)}km in ${targetMinutes.toFixed(1)} min maintaining pace.`;
+
+      return {
+        cardioTarget: { targetDistance, targetMinutes, paceMinutesPerUnit },
+        suggestion: undefined,
+        reasoning,
+      };
+    }
+  }
 
   let range = options.range;
   if (!range) {

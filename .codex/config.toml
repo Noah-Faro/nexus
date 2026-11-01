@@ -2,3 +2,17 @@ sandbox_mode = "workspace-write"
 
 [sandbox_workspace_write]
 network_access = true
+exclude_slash_tmp = true
+exclude_tmpdir_env_var = true
+
+[windows]
+sandbox = "elevated"
+
+trust_level = "trusted"
+
+[features]
+network_proxy = true
+
+[shell_environment_policy]
+inherit = "all"
+exclude = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]

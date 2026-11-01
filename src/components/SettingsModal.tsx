@@ -27,6 +27,7 @@ interface SettingsModalProps {
   onImportComplete?: () => Promise<void>;
   // Direct sync/restore only: reloads App state without starting another cloud operation.
   onExternalDataApplied?: () => Promise<void>;
+  runTrainingDataOperation?: <T>(operation: () => Promise<T>) => Promise<T>;
 }
 
 export default function SettingsModal({
@@ -37,7 +38,10 @@ export default function SettingsModal({
   onAutoSyncEnabled,
   onImportComplete,
   onExternalDataApplied,
+  runTrainingDataOperation,
 }: SettingsModalProps) {
+  const runGuardedTrainingOperation = <T,>(operation: () => Promise<T>): Promise<T> =>
+    runTrainingDataOperation ? runTrainingDataOperation(operation) : operation();
   const [userName, setUserName] = useState(settings.userName || '');
   const [weight, setWeight] = useState(String(settings.weight));
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>(settings.weightUnit);
@@ -200,7 +204,7 @@ export default function SettingsModal({
     setBackupSuccess('');
     setIsProcessingBackup(true);
     try {
-      await exportVaultBackup(backupPassword);
+      await runGuardedTrainingOperation(() => exportVaultBackup(backupPassword));
       // Fix C: Do NOT clear the password — keep it filled for repeated export/import without re-typing.
       // The 30s timeout safety net in the useEffect above handles any case where the share sheet
       // fails to resolve and setIsProcessingBackup(false) in finally doesn't fire.
@@ -221,7 +225,7 @@ export default function SettingsModal({
     setBackupSuccess('');
     setIsProcessingBackup(true);
     try {
-      const imported = await pickAndImportBackup(backupPassword);
+      const imported = await runGuardedTrainingOperation(() => pickAndImportBackup(backupPassword));
       if (imported) {
         // Fix D1: Don't tell user to restart — reload state immediately via callback.
         // onImportComplete reloads settings+logs in App.tsx and triggers an auto-push
@@ -250,9 +254,9 @@ export default function SettingsModal({
     setBackupSuccess('');
     
     try {
-      await performDriveSync(accessToken, backupPassword, (msg) => {
+      await runGuardedTrainingOperation(() => performDriveSync(accessToken, backupPassword, (msg) => {
         setSyncStatus(msg);
-      });
+      }));
       await onExternalDataApplied?.();
       
       // Save password securely in device keychain for seamless startup auto-syncs
@@ -288,7 +292,7 @@ export default function SettingsModal({
           setBackupError('');
           setBackupSuccess('');
           try {
-            await restoreFromSnapshot(backupPassword);
+            await runGuardedTrainingOperation(() => restoreFromSnapshot(backupPassword));
             await clearPreMergeSnapshot();
             setCanUndoSync(false);
             await onExternalDataApplied?.();

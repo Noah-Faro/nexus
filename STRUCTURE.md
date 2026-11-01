@@ -10,11 +10,24 @@ NEXUS/
 ├── .codex/                  # Collapsed: Codex system configuration file
 ├── .expo/                   # Collapsed: Expo mobile framework build cache and device registries
 ├── assets/                  # Collapsed: App icon and splash screen image assets
-├── dashboard_ideas/         # Expanded: Experimental UI components for the dashboard
+├── dashboard_ideas/         # Experimental dashboard UI components and Phase 11 prototypes
+│   ├── archive/
+│   │   └── phase11/         # Superseded Phase 11 anatomy explorations
+│   │       ├── phase11-recovery-ui-anatomy.html
+│   │       ├── phase11-recovery-ui-anatomy-detailed.html
+│   │       ├── phase11-recovery-ui-anatomy-repo-detailed.html
+│   │       ├── phase11-recovery-ui-anatomy-repo-specific.base
+│   │       └── phase11-recovery-ui-anatomy-repo-specific.stage
 │   ├── CoachCard.tsx        # UI component displaying coach training suggestions
-│   └── overloadCoach.ts     # Logic handling training load analysis for the coach
+│   ├── overloadCoach.ts     # Logic handling training load analysis for the coach
+│   ├── phase11-recovery-ui.html
+│   ├── phase11-recovery-ui-alt.html
+│   ├── phase11-recovery-ui-anatomy-repo.html       # Exact repository anatomy reference
+│   └── phase11-recovery-ui-anatomy-repo-specific.html # Detailed recovery prototype handoff
 ├── src/                     # Expanded: Main application source code folder
 │   ├── components/          # Expanded: Reusable UI component modules for the training layout
+│   │   ├── ActiveWorkoutBanner.tsx   # Persistent floating banner displaying active workout and 1-tap water
+│   │   ├── ActiveWorkoutCard.tsx     # Ticking active workout summary card rendered on Training home view
 │   │   ├── AppAlertModal.tsx         # Modal displaying critical system or error alerts
 │   │   ├── BrewLabSheet.tsx          # Bottom sheet or overlay for custom formula tracking
 │   │   ├── CalendarHeatmap.tsx       # Visual grid mapping user workout consistency over time
@@ -29,7 +42,9 @@ NEXUS/
 │   │   ├── NexusVault.tsx            # Protected secure UI for critical data management
 │   │   ├── PasswordPromptModal.tsx   # Lockscreen modal verifying user credentials
 │   │   ├── PresetButtons.tsx         # Utility component rendering quick-input setup values
+│   │   ├── QuickWaterModal.tsx       # OLED-first in-workout quick water logging modal with progress
 │   │   ├── ReorderableTemplateList.tsx # Drag-and-drop workflow ordering workout routines
+│   │   ├── recovery/                    # Recovery dashboard, anatomy map, and supporting sheets
 │   │   ├── SegmentedControl.tsx      # Toggle switch parsing active layout categories
 │   │   ├── SettingsModal.tsx         # App preferences and synchronization configuration panel
 │   │   ├── SheetHeader.tsx           # Standard formatting block finishing sheet components
@@ -43,17 +58,33 @@ NEXUS/
 │   │   ├── TrainingSessionView.tsx   # Dynamic active tracker recording immediate active workout items
 │   │   └── TrainingSettings.tsx      # Specific adjustments shifting profile configuration metrics
 │   ├── exerciseLibrary.ts   # Data store containing the library of trackable gym exercises
+│   ├── backupPayload.ts     # Pure backup payload builder excluding local transaction journals
+│   ├── finishSessionTransaction.ts # Two-write durable finish boundary with one in-memory commit
 │   ├── googleAuth.ts        # Google Account user authentication workflows
 │   ├── googleDrive.ts       # Google Drive API interactions for cloud storage sync
 │   ├── gymStorage.ts        # Local storage utility mapping exercise and workout tracking data
+│   ├── mergeReplay.ts       # Pure ordered replay that retains staging until every write succeeds
 │   ├── overloadCoach.ts     # Progressive overload coaching recommendation module
+│   ├── recovery/             # Deterministic muscle recovery model, anatomy registry, and selectors
 │   ├── security.ts          # Password vault protection and data encryption features
+│   ├── serializedAsyncQueue.ts # Non-poisoning ordered queue for active-session persistence
+│   ├── sessionDeletionJournal.ts # Encrypted crash-recovery journal for completed-session deletion
+│   ├── sessionDeletionRecovery.ts # Pure injected crash-state decisions and validation
+│   ├── sessionDeletionSyncGate.ts # Root backup/sync gate for pending deletion recovery
+│   ├── sessionDeletionSyncGateRuntime.ts # Native storage adapter for the root sync gate
+│   ├── sessionDeletionTransaction.ts # Strict history/tombstone deletion transaction and rollback
 │   ├── storage.ts           # Global application state and storage coordinator
+│   ├── structuredStorage.ts # Pure read/decrypt/validation status classification for persisted JSON
 │   ├── sync.ts              # Data synchronization engine handling remote backups
 │   ├── syncSnapshot.ts      # Conflict resolution snapshots for backup rollbacks
 │   ├── theme.ts             # Application dark and light mode UI styling variables
 │   ├── tombstones.ts        # Deleted record marking for offline first sync handling
+│   ├── tombstoneTransactionQueue.ts # Shared lock for complete tombstone transactions
+│   ├── trainingDefaults.ts  # Immutable repository workout prescriptions and mutable default clones
+│   ├── trainingDecoders.ts  # Versioned runtime validation for persisted Training and Recovery inputs
 │   ├── trainingStorage.ts   # Specialized file interaction tracking for user training logs
+│   ├── trainingStorageAssertions.ts # Deterministic structured-load and compatibility assertions
+│   ├── trainingStorageKeys.ts # Canonical persisted Training storage identifiers
 │   ├── trainingTypes.ts     # Data structure type systems mapping training protocols
 │   ├── types.ts             # Global TypeScript type definitions
 │   ├── utils.ts             # Shared layout and math helper computations

@@ -36,14 +36,21 @@ import NexusVault from './src/components/NexusVault';
 import BrewLabSheet from './src/components/BrewLabSheet';
 import TrainingApp from './src/components/TrainingApp';
 import SyncIndicator from './src/components/SyncIndicator';
+import ActiveWorkoutBanner from './src/components/ActiveWorkoutBanner';
+import { WorkoutSession } from './src/trainingTypes';
+import { loadActiveSessionResult } from './src/trainingStorage';
 import { SyncPreviewModal } from './src/components/SyncPreviewModal';
 import { useGoogleDriveAuth } from './src/googleAuth';
-import { performDriveSync, performDrivePush } from './src/sync';
+import { computeSyncDiff, performDriveSync, performDrivePush } from './src/sync';
 import { findStateFileId } from './src/googleDrive';
 import { replayPendingMerge } from './src/backup';
 import { recordDeletion } from './src/tombstones';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  SessionDeletionRecoveryBlockedError,
+} from './src/sessionDeletionSyncGate';
+import { runWithSessionDeletionRecovery } from './src/sessionDeletionSyncGateRuntime';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -59,8 +66,13 @@ export default function App() {
   const [activeApp, setActiveApp] = useState<'vault' | 'hydration' | 'training'>('vault');
   const [activeView, setActiveView] = useState<'tracker' | 'stats' | 'calendar'>('tracker');
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const settingsRef = useRef<UserSettings | null>(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const [logs, setLogs] = useState<DrinkLog[]>([]);
   const [trainingDataRevision, setTrainingDataRevision] = useState(0);
+  const [activeWorkoutSession, setActiveWorkoutSession] = useState<WorkoutSession | null>(null);
   const [selectedType, setSelectedType] = useState<string>('water');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [ironCommand, setIronCommand] = useState<string | undefined>(undefined);
@@ -82,14 +94,53 @@ export default function App() {
   const pushInFlight = useRef(false); // Finding #3: push debounce lock
   const pushPending = useRef(false);
   const pushPromise = useRef<Promise<void> | null>(null);
+  const deletionRecoveryAlertShownRef = useRef(false);
+
+  const runTrainingDataOperation = async <T,>(operation: () => Promise<T>): Promise<T> => {
+    try {
+      const result = await runWithSessionDeletionRecovery(operation);
+      deletionRecoveryAlertShownRef.current = false;
+      return result;
+    } catch (error) {
+      if (error instanceof SessionDeletionRecoveryBlockedError) {
+        console.error('Training backup operation blocked by deletion recovery', error.recovery.error);
+        if (!deletionRecoveryAlertShownRef.current) {
+          deletionRecoveryAlertShownRef.current = true;
+          triggerAlert(
+            'Workout History Needs Attention',
+            'An interrupted workout deletion must be recovered before backup or cloud sync. Training remains available, but Recovery history may be incomplete.',
+          );
+        }
+      }
+      throw error;
+    }
+  };
+
+  const guardedDriveSync = (
+    token: string,
+    password: string,
+    onProgress?: (message: string) => void,
+  ) => runTrainingDataOperation(() => performDriveSync(token, password, onProgress));
+
+  const guardedDrivePush = (
+    token: string,
+    password: string,
+  ) => runTrainingDataOperation(() => performDrivePush(token, password));
 
   const reloadMergedAppData = async (): Promise<{ settings: UserSettings; logs: DrinkLog[] }> => {
-    const [storedSettings, storedLogs] = await Promise.all([
+    const [storedSettings, storedLogs, activeSessionRes] = await Promise.all([
       loadSettings(),
       loadLogs(),
+      loadActiveSessionResult(),
     ]);
+    settingsRef.current = storedSettings;
     setSettings(storedSettings);
     setLogs(storedLogs);
+    if (activeSessionRes.status === 'valid' && activeSessionRes.value && !activeSessionRes.value.endTime) {
+      setActiveWorkoutSession(activeSessionRes.value);
+    } else if (activeSessionRes.status === 'valid') {
+      setActiveWorkoutSession(null);
+    }
     setTrainingDataRevision(revision => revision + 1);
     return { settings: storedSettings, logs: storedLogs };
   };
@@ -100,7 +151,11 @@ export default function App() {
 
   useEffect(() => {
     // Only run this check once when app mounts
-    if (accessToken && !hasCheckedSync.current && settings && settings.googleDriveAutoSyncEnabled !== false) {
+    if (accessToken && !hasCheckedSync.current && settings) {
+      if (settings.googleDriveAutoSyncEnabled === false) {
+        hasCheckedSync.current = true;
+        return;
+      }
       hasCheckedSync.current = true;
       
       const checkAndSync = async () => {
@@ -108,7 +163,7 @@ export default function App() {
           setIsSyncing(true);
           
           // Finding #2: Replay any interrupted merge before syncing
-          await replayPendingMerge();
+          await runTrainingDataOperation(() => replayPendingMerge());
           
           const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
           
@@ -117,7 +172,7 @@ export default function App() {
           if (isDirty === 'true' && savedPassword) {
             console.log('Detected unsynced offline changes (dirty flag). Running full sync to merge...');
             try {
-              const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Dirty sync:', msg));
+              const success = await guardedDriveSync(accessToken, savedPassword, (msg) => console.log('Dirty sync:', msg));
               if (success) {
                 await reloadMergedAppData();
                 await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
@@ -135,8 +190,7 @@ export default function App() {
             if (savedPassword) {
               try {
                 // Task 5e: computeSyncDiff instead of blind sync
-                const { computeSyncDiff } = require('./src/sync');
-                const diff = await computeSyncDiff(accessToken);
+                const diff = await runTrainingDataOperation(() => computeSyncDiff(accessToken));
                 
                 if (diff && (diff.newSessionsCount > 0 || diff.newLogsCount > 0 || diff.settingsChanged || diff.tombstonesApplied > 0)) {
                    setSyncDiffData(diff);
@@ -148,7 +202,7 @@ export default function App() {
               } catch (diffErr: any) {
                 console.log('Diff computation failed. Proceeding with standard silent sync if password is ok.', diffErr);
                 // Fallback to normal if password wasn't cached or something else failed
-                const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Fallback sync:', msg));
+                const success = await guardedDriveSync(accessToken, savedPassword, (msg) => console.log('Fallback sync:', msg));
                 if (success) {
                   await reloadMergedAppData();
                   await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
@@ -181,13 +235,13 @@ export default function App() {
   }, [accessToken, settings]);
 
   const handleMergeConfirm = async () => {
-    if (!accessToken) return;
+    if (!accessToken || settings?.googleDriveAutoSyncEnabled === false) return;
     setSyncDiffModalVisible(false);
     setIsSyncing(true);
     try {
       const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
       if (savedPassword) {
-        const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Merge preview sync:', msg));
+        const success = await guardedDriveSync(accessToken, savedPassword, (msg) => console.log('Merge preview sync:', msg));
         if (success) {
           await reloadMergedAppData();
           await AsyncStorage.setItem('nexus_last_sync', Date.now().toString());
@@ -202,12 +256,12 @@ export default function App() {
   };
 
   const handleExecuteStartupSync = async (password: string) => {
-    if (!accessToken) return;
+    if (!accessToken || settings?.googleDriveAutoSyncEnabled === false) return;
     setPasswordPromptVisible(false);
     setIsSyncing(true);
     
     try {
-      const success = await performDriveSync(accessToken, password, (msg) => {
+      const success = await guardedDriveSync(accessToken, password, (msg) => {
         console.log(msg); // Silent progress
       });
       if (success) {
@@ -229,6 +283,14 @@ export default function App() {
   };
 
   const handleCloudAutoPush = async () => {
+    // If auto-sync is disabled or user not logged in, mark dirty so changes sync when enabled, and exit immediately.
+    const currentSettings = settingsRef.current ?? settings;
+    if (!accessToken || currentSettings?.googleDriveAutoSyncEnabled === false) {
+      pushPending.current = false;
+      await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
+      return;
+    }
+
     // Queue every local mutation. A call arriving during an upload is replayed after
     // the active upload so the latest encrypted storage snapshot is not dropped.
     pushPending.current = true;
@@ -243,16 +305,17 @@ export default function App() {
     // Acquire the lock before the first await to close the SecureStore race window.
     pushInFlight.current = true;
     const pushTask = (async () => {
-      setIsSyncing(true);
       try {
         while (pushPending.current) {
           pushPending.current = false;
 
-          if (!accessToken || settings?.googleDriveAutoSyncEnabled === false) {
+          const latestSettings = settingsRef.current ?? settings;
+          if (!accessToken || latestSettings?.googleDriveAutoSyncEnabled === false) {
             await AsyncStorage.setItem('nexus_sync_dirty', 'true').catch(console.error);
-            continue;
+            break;
           }
 
+          setIsSyncing(true);
           try {
             const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
             if (!savedPassword) {
@@ -263,7 +326,7 @@ export default function App() {
             const isDirty = await AsyncStorage.getItem('nexus_sync_dirty');
             if (isDirty === 'true') {
               console.log('Pending offline changes detected. Running full cloud sync...');
-              const success = await performDriveSync(
+              const success = await guardedDriveSync(
                 accessToken,
                 savedPassword,
                 (msg) => console.log('Queued dirty sync:', msg)
@@ -273,7 +336,7 @@ export default function App() {
               }
             } else {
               console.log('Starting silent background cloud push...');
-              await performDrivePush(accessToken, savedPassword);
+              await guardedDrivePush(accessToken, savedPassword);
               console.log('Silent background cloud push completed.');
             }
           } catch (err: any) {
@@ -283,6 +346,8 @@ export default function App() {
             } else {
               console.log('Silent background cloud push failed:', err);
             }
+          } finally {
+            setIsSyncing(false);
           }
         }
       } finally {
@@ -315,6 +380,7 @@ export default function App() {
       trainingTemplateOrder: orderedIds,
     };
     await saveSettingsStrict(updatedSettings);
+    settingsRef.current = updatedSettings;
     setSettings(updatedSettings);
     await handleCloudAutoPush();
   };
@@ -323,11 +389,17 @@ export default function App() {
   // Performs an immediate full pull-merge-push sync so the device is up to date right away.
   const handleAutoSyncEnabled = async () => {
     if (!accessToken) return;
+    if (pushPromise.current) {
+      await pushPromise.current;
+    }
+    const currentSettings = settingsRef.current ?? settings;
+    if (currentSettings?.googleDriveAutoSyncEnabled === false) return;
+
     setIsSyncing(true);
     try {
       const savedPassword = await SecureStore.getItemAsync('nexus_vault_password');
       if (savedPassword) {
-        const success = await performDriveSync(accessToken, savedPassword, (msg) => console.log('Auto-sync toggle sync:', msg));
+        const success = await guardedDriveSync(accessToken, savedPassword, (msg) => console.log('Auto-sync toggle sync:', msg));
         if (success) {
           await reloadMergedAppData();
           console.log('Auto-sync enabled: immediate sync completed.');
@@ -356,9 +428,9 @@ export default function App() {
           setIsSyncing(true); // Show sync indicator if visible
           // Push FIRST to upload cleaned tombstone set to cloud,
           // preventing re-introduction of cleared tombstones during full sync
-          await performDrivePush(accessToken, savedPwd);
+          await guardedDrivePush(accessToken, savedPwd);
           // Then do a full sync to pull any newer data from other devices
-          await performDriveSync(accessToken, savedPwd);
+          await guardedDriveSync(accessToken, savedPwd);
           
           // Reload to pick up any merged data from the pull
           await reloadMergedAppData();
@@ -382,6 +454,7 @@ export default function App() {
     setDecafPrefs(newPrefs);
     if (settings) {
       const updated = { ...settings, decafPrefs: newPrefs };
+      settingsRef.current = updated;
       setSettings(updated);
       await saveSettings(updated);
     }
@@ -425,14 +498,30 @@ export default function App() {
     async function initApp() {
       while (true) {
         try {
+          try {
+            await runTrainingDataOperation(async () => undefined);
+          } catch (recoveryError) {
+            if (!(recoveryError instanceof SessionDeletionRecoveryBlockedError)) {
+              console.error('Unexpected workout deletion recovery failure', recoveryError);
+            }
+            // App initialization continues so Training remains available with
+            // explicit unknown Recovery history and sync blocked by the gate.
+          }
           const storedSettings = await loadSettings();
           const storedLogs = await loadLogs();
+          const activeSessionRes = await loadActiveSessionResult();
           
           // Artificially hold the launch screen for 500ms to appreciate the NEXUS logo
           await new Promise(resolve => setTimeout(resolve, 500));
           
+          settingsRef.current = storedSettings;
           setSettings(storedSettings);
           setLogs(storedLogs);
+          if (activeSessionRes.status === 'valid' && activeSessionRes.value && !activeSessionRes.value.endTime) {
+            setActiveWorkoutSession(activeSessionRes.value);
+          } else if (activeSessionRes.status === 'valid') {
+            setActiveWorkoutSession(null);
+          }
           setIsWaitingForUnlock(false);
           break; // Initialization successful
         } catch (err: any) {
@@ -676,6 +765,7 @@ export default function App() {
 
   // Save profile metrics settings
   const handleSaveSettings = async (updatedSettings: UserSettings) => {
+    settingsRef.current = updatedSettings;
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -693,6 +783,7 @@ export default function App() {
       ...settings,
       customLiquids: updatedLiquids
     };
+    settingsRef.current = updatedSettings;
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
     handleCloudAutoPush();
@@ -706,6 +797,7 @@ export default function App() {
       ...settings,
       customLiquids
     };
+    settingsRef.current = updatedSettings;
     setSettings(updatedSettings);
     await saveSettings(updatedSettings);
     handleCloudAutoPush();
@@ -715,8 +807,21 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ExpoStatusBar style="light" />
-      <SyncIndicator isSyncing={isSyncing} />
+      <SyncIndicator isSyncing={isSyncing && settings?.googleDriveAutoSyncEnabled !== false} />
       <View style={styles.container}>
+        {activeApp !== 'training' && activeWorkoutSession && !activeWorkoutSession.endTime && (
+          <ActiveWorkoutBanner
+            session={activeWorkoutSession}
+            onResume={() => {
+              setActiveApp('training');
+              setIronCommand('resume');
+            }}
+            onQuickWater={async () => {
+              await handleLogDrink(250, false, 'water');
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }}
+          />
+        )}
         {activeApp === 'vault' ? (
           <NexusVault 
             settings={settings}
@@ -750,6 +855,10 @@ export default function App() {
             templateOrder={settings.trainingTemplateOrder}
             onTemplateOrderChange={handleTrainingTemplateOrderChange}
             dataRevision={trainingDataRevision}
+            onActiveSessionChange={setActiveWorkoutSession}
+            onLogDrink={async (amount, type) => {
+              await handleLogDrink(amount, false, type || 'water');
+            }}
           />
         ) : (
           <>
@@ -820,6 +929,7 @@ export default function App() {
           onAutoSyncEnabled={handleAutoSyncEnabled}
           onImportComplete={handleImportComplete}
           onExternalDataApplied={handleExternalDataApplied}
+          runTrainingDataOperation={runTrainingDataOperation}
         />
 
         {/* Custom Obsidian Celebration Modal */}

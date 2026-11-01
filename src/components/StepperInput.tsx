@@ -31,18 +31,16 @@ export default function StepperInput({ value, onChange, min = 0, max = 9999, ste
   };
 
   const handleBlur = () => {
-    let parsed = parseFloat(textValue.replace(',', '.'));
+    const parsed = parseFloat(textValue.replace(',', '.'));
     if (isNaN(parsed)) {
       setTextValue(value.toString());
       return;
     }
-    // Snap to nearest increment
-    let snapped = Math.round(parsed / step) * step;
-    snapped = Math.max(min, Math.min(max, snapped));
-    snapped = Number(snapped.toFixed(2)); // avoid precision issues
-    
-    setTextValue(snapped.toString());
-    onChange(snapped);
+    const clamped = Math.max(min, Math.min(max, parsed));
+    const roundedValue = Number(clamped.toFixed(1));
+
+    setTextValue(roundedValue.toString());
+    onChange(roundedValue);
   };
 
   return (
@@ -55,6 +53,7 @@ export default function StepperInput({ value, onChange, min = 0, max = 9999, ste
         value={textValue}
         onChangeText={setTextValue}
         onBlur={handleBlur}
+        onSubmitEditing={handleBlur}
         keyboardType="decimal-pad"
         selectTextOnFocus
       />

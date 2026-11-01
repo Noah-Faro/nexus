@@ -2,6 +2,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { EXERCISE_LIBRARY } from './exerciseLibrary';
 import { Exercise } from './trainingTypes';
 import { getOrGenerateMasterKey, encryptAESGCM, decryptAESGCM } from './security';
+import {
+  loadStructuredStorageValue,
+  saveStructuredStorageValue,
+  type StorageLoadResult,
+  type StructuredStorageLoadOptions,
+} from './structuredStorage';
+export type {
+  StorageDecoderResult,
+  StorageLoadResult,
+  StorageLoadStatus,
+  StorageSourceFormat,
+  StructuredStorageLoadOptions,
+  StructuredStorageWriteDependencies,
+} from './structuredStorage';
 
 // High-entropy fast unique ID generator (collison-free, pure JS)
 export const generateId = (): string => {
@@ -44,6 +58,20 @@ export async function loadFromStorage<T>(key: string, fallback: T): Promise<T> {
   return fallback;
 }
 
+/**
+ * Reads persisted JSON without rewriting, deleting, quarantining, or replacing the raw value.
+ * Callers receive an explicit status and a safe value for every outcome.
+ */
+export async function loadFromStorageResult<T, TIssue>(
+  key: string,
+  options: StructuredStorageLoadOptions<T, TIssue>,
+): Promise<StorageLoadResult<T, TIssue>> {
+  return loadStructuredStorageValue(key, options, {
+    read: () => AsyncStorage.getItem(key),
+    decrypt: async payload => decryptAESGCM(payload, await getOrGenerateMasterKey()),
+  });
+}
+
 export async function saveToStorage<T>(key: string, data: T): Promise<void> {
   try {
     await saveToStorageStrict(key, data);
@@ -60,8 +88,8 @@ export async function saveToStorage<T>(key: string, data: T): Promise<void> {
  * Legacy callers keep saveToStorage's historical best-effort behavior.
  */
 export async function saveToStorageStrict<T>(key: string, data: T): Promise<void> {
-  const jsonStr = JSON.stringify(data);
-  const keyBuffer = await getOrGenerateMasterKey();
-  const encryptedStr = encryptAESGCM(jsonStr, keyBuffer);
-  await AsyncStorage.setItem(key, encryptedStr);
+  return saveStructuredStorageValue(data, {
+    encrypt: async serialized => encryptAESGCM(serialized, await getOrGenerateMasterKey()),
+    write: encryptedPayload => AsyncStorage.setItem(key, encryptedPayload),
+  });
 }

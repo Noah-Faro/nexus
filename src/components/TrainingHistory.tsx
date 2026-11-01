@@ -38,6 +38,18 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
     const isLbs = session.sets.length > 0 && session.sets.every(s => s.weightUnit === 'lbs');
     const unit = isLbs ? 'lbs' : 'kg';
 
+    const liftingVolume = session.sets.reduce((sum, s) => {
+      const ex = getExerciseById(s.exerciseId, customExercises);
+      const isCardio = Boolean(
+        s.timeMinutes !== undefined ||
+        ex?.muscleGroup === 'cardio' ||
+        ex?.trackingType === 'time' ||
+        ex?.trackingType === 'time_distance'
+      );
+      if (isCardio) return sum;
+      return sum + (s.weight * s.reps);
+    }, 0);
+
     return (
       <Swipeable
         key={session.id}
@@ -89,7 +101,7 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
           >
             <View>
               <Text style={styles.details}>{uniqueExercises} exercises • {session.sets.length} sets</Text>
-              <Text style={styles.volume}>Volume: {session.totalVolume} {unit}</Text>
+              <Text style={styles.volume}>Volume: {liftingVolume} {unit}</Text>
             </View>
             {isExpanded ? <ChevronUp color={theme.colors.textMuted} size={20} /> : <ChevronDown color={theme.colors.textMuted} size={20} />}
           </TouchableOpacity>
@@ -109,6 +121,12 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
                   (s) => s.startTime < session.startTime
                 );
 
+                const isCardio = Boolean(
+                  exDef?.muscleGroup === 'cardio' ||
+                  exDef?.trackingType === 'time' ||
+                  exDef?.trackingType === 'time_distance'
+                );
+
                 return (
                    <View key={exId} style={styles.exBlock}>
                     <Text style={styles.exName}>{name}</Text>
@@ -116,15 +134,32 @@ export default function TrainingHistory({ sessions, onDeleteSession, onEditSessi
                       exerciseId={exId}
                       history={historyUpToHere}
                       incrementKg={exDef?.incrementStep}
+                      isCardio={isCardio}
+                      trackingType={exDef?.trackingType}
                     />
-                    {exSets.map(s => (
-                      <View key={s.id} style={styles.setRow}>
-                        <Text style={[styles.setText, s.isWarmup && { color: '#FF9F0A' }]}>
-                          {s.isWarmup ? 'Warmup' : `Set ${s.setNumber}`}
-                        </Text>
-                        <Text style={styles.setText}>{s.weight}{s.weightUnit || unit} × {s.reps}</Text>
-                      </View>
-                    ))}
+                    {exSets.map(s => {
+                      const isSetCardio = isCardio || s.timeMinutes !== undefined;
+                      const isTimeDistance = exDef?.trackingType === 'time_distance' || (isSetCardio && s.weight > 0);
+                      const distUnit = s.weightUnit === 'kg' ? 'km' : 'mi';
+                      const timeVal = s.timeMinutes ?? s.reps;
+
+                      return (
+                        <View key={s.id} style={styles.setRow}>
+                          <Text style={[styles.setText, s.isWarmup && { color: '#FF9F0A' }]}>
+                            {s.isWarmup ? 'Warmup' : `Set ${s.setNumber}`}
+                          </Text>
+                          {isSetCardio ? (
+                            isTimeDistance ? (
+                              <Text style={styles.setText}>{s.weight}{distUnit} in {timeVal} min</Text>
+                            ) : (
+                              <Text style={styles.setText}>{timeVal} min</Text>
+                            )
+                          ) : (
+                            <Text style={styles.setText}>{s.weight}{s.weightUnit || unit} × {s.reps}</Text>
+                          )}
+                        </View>
+                      );
+                    })}
                   </View>
                 );
               })}

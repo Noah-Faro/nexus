@@ -9,6 +9,7 @@ export interface TemplateExercise {
   exerciseId: string;      // References exercise library
   targetSets: number;
   targetReps: number;
+  targetMinutes?: number;
   notes?: string;          // "Pause at bottom", "Slow eccentric"
 }
 
@@ -35,6 +36,7 @@ export interface LoggedSet {
   weight: number;          // in the exercise's configured unit
   weightUnit: 'kg' | 'lbs';
   reps: number;
+  timeMinutes?: number;
   rpe?: number;            // Rate of Perceived Exertion (1-10)
   isWarmup?: boolean;      // NEW FIELD
   timestamp: number;

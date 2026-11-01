@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View, Modal, Pressable, StyleProp, TextStyle } from 'react-native';
+import { StyleSheet, Text, View, Modal, Pressable, StyleProp, TextStyle, useWindowDimensions } from 'react-native';
 import { theme } from '../theme';
 
 export interface AppAlertButton {
@@ -17,6 +17,8 @@ interface AppAlertModalProps {
 }
 
 export default function AppAlertModal({ visible, title, message, buttons, onClose }: AppAlertModalProps) {
+  const { width } = useWindowDimensions();
+  const gutter = width >= 768 ? theme.spacing.xl : theme.spacing.lg;
   const handlePress = (btn: AppAlertButton) => {
     onClose();
     if (btn.onPress) {
@@ -34,7 +36,7 @@ export default function AppAlertModal({ visible, title, message, buttons, onClos
 
   return (
     <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, { paddingHorizontal: gutter }]}>
         <View style={styles.container}>
           <View style={styles.body}>
             <Text style={styles.titleText}>{title}</Text>
@@ -81,7 +83,8 @@ const styles = StyleSheet.create({
     padding: theme.spacing.lg,
   },
   container: {
-    width: 270,
+    width: '100%',
+    maxWidth: 440,
     backgroundColor: theme.colors.surfaceElevated,
     borderRadius: 14,
     overflow: 'hidden',
@@ -98,6 +101,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     textAlign: 'center',
     marginBottom: 4,
+    flexShrink: 1,
   },
   messageText: {
     fontFamily: theme.typography.sans,
@@ -105,6 +109,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     textAlign: 'center',
     lineHeight: 18,
+    flexShrink: 1,
   },
   rowButtons: {
     flexDirection: 'row',
@@ -123,11 +128,11 @@ const styles = StyleSheet.create({
   },
   rowBtn: {
     flex: 1,
-    height: 44,
+    minHeight: 44,
   },
   colBtn: {
     width: '100%',
-    height: 44,
+    minHeight: 44,
   },
   btnText: {
     fontFamily: theme.typography.sans,

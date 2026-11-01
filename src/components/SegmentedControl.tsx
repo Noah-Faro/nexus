@@ -36,6 +36,9 @@ export default function SegmentedControl<T extends string | number>({
             style={[styles.segment, isSelected && styles.activeSegment]}
             onPress={() => handleSelect(val)}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isSelected }}
+            accessibilityLabel={displayLabel}
           >
             {icon && (
               <View style={styles.iconContainer}>
@@ -67,17 +70,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 44,
     paddingVertical: 6,
     borderRadius: theme.borderRadius.sm - 2,
     gap: 6,
   },
   activeSegment: {
     backgroundColor: theme.colors.text,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1,
-    elevation: 2,
   },
   iconContainer: {
     marginRight: 2,

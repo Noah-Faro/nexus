@@ -1,17 +1,63 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../theme';
-import { WorkoutSession, VolumeStateSnapshot } from '../trainingTypes';
+import { Exercise, VolumeStateSnapshot, WorkoutSession, WorkoutTemplate } from '../trainingTypes';
+import type { StorageLoadStatus } from '../utils';
+import type { HistoryCompleteness } from '../recovery/types';
+import SegmentedControl from './SegmentedControl';
+import MuscleRecoveryView from './recovery/MuscleRecoveryView';
 
 interface TrainingDashboardProps {
   sessions: WorkoutSession[];
+  templates: WorkoutTemplate[];
+  customExercises: Exercise[];
+  historyCompleteness: HistoryCompleteness;
+  templateLoadStatus: StorageLoadStatus;
 }
 
-export default function TrainingDashboard({ sessions }: TrainingDashboardProps) {
+type ProgressView = 'performance' | 'recovery';
+
+export default function TrainingDashboard({
+  sessions,
+  templates,
+  customExercises,
+  historyCompleteness,
+  templateLoadStatus,
+}: TrainingDashboardProps) {
+  const [activeView, setActiveView] = useState<ProgressView>('performance');
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.segmentContainer} accessibilityLabel="Progress dashboard view">
+        <SegmentedControl
+          values={['performance', 'recovery'] as const}
+          selectedValue={activeView}
+          onChange={setActiveView}
+          labels={['Performance', 'Recovery']}
+        />
+      </View>
+
+      {activeView === 'performance' ? (
+        <PerformanceDashboard sessions={sessions} />
+      ) : (
+        <MuscleRecoveryView
+          sessions={sessions}
+          templates={templates}
+          customExercises={customExercises}
+          historyCompleteness={historyCompleteness}
+          templateLoadStatus={templateLoadStatus}
+        />
+      )}
+    </View>
+  );
+}
+
+function PerformanceDashboard({ sessions }: { sessions: WorkoutSession[] }) {
   const [volumeSnapshots, setVolumeSnapshots] = useState<VolumeStateSnapshot[]>([]);
   const [selectedMuscleGroup, setSelectedMuscleGroup] = useState<string | null>(null);
+  const { width } = useWindowDimensions();
 
   useEffect(() => {
     AsyncStorage.getItem('nexus_volume_snapshots').then(data => {
@@ -30,10 +76,15 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
     return Array.from(groups).sort();
   }, [volumeSnapshots]);
 
-  // Set default selected muscle group
-  if (!selectedMuscleGroup && muscleGroups.length > 0) {
-    setSelectedMuscleGroup(muscleGroups[0]);
-  }
+  useEffect(() => {
+    if (muscleGroups.length === 0) {
+      if (selectedMuscleGroup !== null) setSelectedMuscleGroup(null);
+      return;
+    }
+    if (!selectedMuscleGroup || !muscleGroups.includes(selectedMuscleGroup)) {
+      setSelectedMuscleGroup(muscleGroups[0]);
+    }
+  }, [muscleGroups, selectedMuscleGroup]);
 
   // Calculate best1RMAnchor trend for selected muscle group
   const e1RMTrend = useMemo(() => {
@@ -55,8 +106,7 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
     return volumeSnapshots.filter(s => s.weekId === latestWeek);
   }, [volumeSnapshots, latestWeek]);
 
-  const { width } = Dimensions.get('window');
-  const graphW = width - 64;
+  const graphW = Math.max(width - (theme.spacing.lg * 2) - 40, 1);
   const graphH = 150;
   
   const chartPath = useMemo(() => {
@@ -76,7 +126,11 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
   const MEV_BASELINE = 10;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.dashboardScroll}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.sectionTitle}>ALL-TIME PROGRESS</Text>
       
       <View style={styles.statGrid}>
@@ -100,6 +154,9 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
                   key={group} 
                   style={[styles.pill, selectedMuscleGroup === group && styles.pillActive]}
                   onPress={() => setSelectedMuscleGroup(group)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show ${group} estimated one-rep-max trend`}
+                  accessibilityState={{ selected: selectedMuscleGroup === group }}
                 >
                   <Text style={[styles.pillText, selectedMuscleGroup === group && styles.pillTextActive]}>
                     {group.toUpperCase()}
@@ -162,6 +219,17 @@ export default function TrainingDashboard({ sessions }: TrainingDashboardProps) 
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  segmentContainer: {
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border,
+  },
+  dashboardScroll: {
     flex: 1,
     backgroundColor: theme.colors.background,
   },

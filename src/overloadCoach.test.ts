@@ -61,6 +61,60 @@ function runTests() {
   const resultWithoutRPE = suggestNextTarget(history4, { rpeEnabled: false });
   assert.strictEqual(resultWithoutRPE.suggestion?.weightKg, 95);
 
+  console.log('Running Cardio Case 1: First-time cardio session without history');
+  const resultCardioTimeNoHistory = suggestNextTarget([], { isCardio: true, trackingType: 'time' });
+  assert.strictEqual(resultCardioTimeNoHistory.suggestion, undefined);
+  assert.strictEqual(resultCardioTimeNoHistory.cardioTarget?.targetMinutes, 20);
+  assert.ok(resultCardioTimeNoHistory.reasoning.includes('baseline duration'));
+
+  const resultCardioDistNoHistory = suggestNextTarget([], { isCardio: true, trackingType: 'time_distance' });
+  assert.strictEqual(resultCardioDistNoHistory.suggestion, undefined);
+  assert.strictEqual(resultCardioDistNoHistory.cardioTarget?.targetDistance, 5);
+  assert.strictEqual(resultCardioDistNoHistory.cardioTarget?.targetMinutes, 30);
+  assert.strictEqual(resultCardioDistNoHistory.cardioTarget?.paceMinutesPerUnit, 6);
+  assert.ok(resultCardioDistNoHistory.reasoning.includes('baseline distance'));
+
+  console.log('Running Cardio Case 2: Cardio time-only progression (Stairmaster)');
+  const historyStairmaster: CoachSession[] = [
+    {
+      dateKey: '2026-07-11',
+      sets: [{ weightKg: 0, reps: 20 }]
+    }
+  ];
+  const resultStairmaster = suggestNextTarget(historyStairmaster, { isCardio: true, trackingType: 'time' });
+  assert.strictEqual(resultStairmaster.suggestion, undefined);
+  assert.strictEqual(resultStairmaster.cardioTarget?.targetMinutes, 22);
+  assert.strictEqual(resultStairmaster.cardioTarget?.targetDistance, undefined);
+  assert.strictEqual(resultStairmaster.reasoning, 'Last session: 20.0 min. Aim for 22.0 min at a sustained pace.');
+
+  console.log('Running Cardio Case 3: Cardio time-distance progression (Treadmill)');
+  const historyTreadmill: CoachSession[] = [
+    {
+      dateKey: '2026-07-11',
+      sets: [{ weightKg: 5, reps: 30 }]
+    }
+  ];
+  const resultTreadmill = suggestNextTarget(historyTreadmill, { isCardio: true, trackingType: 'time_distance' });
+  assert.strictEqual(resultTreadmill.suggestion, undefined);
+  assert.strictEqual(resultTreadmill.cardioTarget?.targetDistance, 5.3);
+  assert.strictEqual(resultTreadmill.cardioTarget?.targetMinutes, 31.8);
+  assert.strictEqual(resultTreadmill.cardioTarget?.paceMinutesPerUnit, 6);
+  assert.ok(resultTreadmill.reasoning.includes('5.0km in 30.0 min'));
+  assert.ok(resultTreadmill.reasoning.includes('5.3km in 31.8 min'));
+
+  console.log('Running Cardio Case 4: Cardio with explicit distance and timeMinutes');
+  const historyExplicit: CoachSession[] = [
+    {
+      dateKey: '2026-07-11',
+      sets: [{ weightKg: 0, reps: 0, distance: 10, timeMinutes: 60 }]
+    }
+  ];
+  const resultExplicit = suggestNextTarget(historyExplicit, { trackingType: 'time_distance' });
+  assert.strictEqual(resultExplicit.suggestion, undefined);
+  assert.strictEqual(resultExplicit.cardioTarget?.targetDistance, 10.5);
+  assert.strictEqual(resultExplicit.cardioTarget?.targetMinutes, 63);
+  assert.strictEqual(resultExplicit.cardioTarget?.paceMinutesPerUnit, 6);
+
   console.log('All tests passed successfully!');
 }
 
